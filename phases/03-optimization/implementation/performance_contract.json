@@ -1,0 +1,43 @@
+{
+  "contract_version": "1.0.0",
+  "dataset": "ZIPCO Relational Dataset v2",
+  "dataset_version": "2.0.0",
+  "status": "READY_FOR_AWS_EXECUTION",
+  "benchmark": {
+    "iterations_per_strategy": 3,
+    "result_reuse": false,
+    "source_table": "transactions",
+    "strategies": [
+      "csv_full",
+      "parquet_full",
+      "csv_2023",
+      "parquet_partitioned_2023"
+    ],
+    "metrics": [
+      "data_scanned_bytes",
+      "engine_execution_ms",
+      "total_execution_ms"
+    ],
+    "validity_gates": [
+      "CSV and Parquet full-scan results reconcile exactly",
+      "CSV and partitioned-Parquet 2023 results reconcile exactly",
+      "Parquet full scan reads fewer bytes than CSV full scan",
+      "Partition-pruned Parquet reads fewer bytes than full Parquet"
+    ]
+  },
+  "monitoring": {
+    "dashboard": "zipco-financial-platform-operations",
+    "failure_log_group": "/aws/events/zipco-financial-platform/failures",
+    "event_rules": [
+      "zipco-glue-job-failures",
+      "zipco-glue-crawler-failures",
+      "zipco-athena-query-failures"
+    ],
+    "alarms": [
+      "zipco-pipeline-failure-events",
+      "zipco-athena-successful-dml-scan-spike",
+      "zipco-glue-failed-spark-tasks"
+    ]
+  },
+  "scope_note": "This phase creates an operational CloudWatch dashboard. A QuickSight business-intelligence dashboard is intentionally separate because QuickSight may require account activation and additional charges."
+}

@@ -1,0 +1,287 @@
+{
+  "dataset": "ZIPCO Relational Dataset v2",
+  "version": "2.0.0",
+  "validated_at_utc": "2026-08-13T00:29:29.554895+00:00",
+  "overall_status": "PASS",
+  "rules": [
+    {
+      "rule_id": "DQ-V2-001",
+      "rule": "customers row count",
+      "status": "PASS",
+      "actual": 100000,
+      "expected": 100000
+    },
+    {
+      "rule_id": "DQ-V2-002",
+      "rule": "accounts row count",
+      "status": "PASS",
+      "actual": 150000,
+      "expected": 150000
+    },
+    {
+      "rule_id": "DQ-V2-003",
+      "rule": "transactions row count",
+      "status": "PASS",
+      "actual": 1000000,
+      "expected": 1000000
+    },
+    {
+      "rule_id": "DQ-V2-004",
+      "rule": "category row count",
+      "status": "PASS",
+      "actual": 10,
+      "expected": 10
+    },
+    {
+      "rule_id": "DQ-V2-005",
+      "rule": "categorized transaction row count",
+      "status": "PASS",
+      "actual": 1000000,
+      "expected": 1000000
+    },
+    {
+      "rule_id": "DQ-V2-006",
+      "rule": "market data row count",
+      "status": "PASS",
+      "actual": 87140,
+      "expected": 87140
+    },
+    {
+      "rule_id": "DQ-V2-010",
+      "rule": "customer primary key",
+      "status": "PASS",
+      "actual": 100000,
+      "expected": 100000
+    },
+    {
+      "rule_id": "DQ-V2-011",
+      "rule": "account primary key",
+      "status": "PASS",
+      "actual": 150000,
+      "expected": 150000
+    },
+    {
+      "rule_id": "DQ-V2-012",
+      "rule": "transaction primary key",
+      "status": "PASS",
+      "actual": 1000000,
+      "expected": 1000000
+    },
+    {
+      "rule_id": "DQ-V2-013",
+      "rule": "category primary key",
+      "status": "PASS",
+      "actual": 10,
+      "expected": 10
+    },
+    {
+      "rule_id": "DQ-V2-014",
+      "rule": "categorized transaction composite key",
+      "status": "PASS",
+      "actual": 1000000,
+      "expected": 1000000
+    },
+    {
+      "rule_id": "DQ-V2-015",
+      "rule": "market data primary key",
+      "status": "PASS",
+      "actual": 87140,
+      "expected": 87140
+    },
+    {
+      "rule_id": "DQ-V2-020",
+      "rule": "account customer FK",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-021",
+      "rule": "transaction account FK",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-022",
+      "rule": "bridge transaction FK",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-023",
+      "rule": "bridge category FK",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-030",
+      "rule": "customer functional dependency",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-031",
+      "rule": "account functional dependency",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-032",
+      "rule": "transaction functional dependency",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-033",
+      "rule": "market data functional dependency",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-040",
+      "rule": "transaction type domain",
+      "status": "PASS",
+      "actual": [
+        "Deposit",
+        "Transfer",
+        "Withdrawal"
+      ],
+      "expected": [
+        "Deposit",
+        "Transfer",
+        "Withdrawal"
+      ]
+    },
+    {
+      "rule_id": "DQ-V2-041",
+      "rule": "transaction-category compatibility",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-042",
+      "rule": "numeric ranges",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-043",
+      "rule": "transaction date validity",
+      "status": "PASS",
+      "actual": [
+        "2000-01-01",
+        "2023-11-09",
+        8714
+      ],
+      "expected": [
+        "2000-01-01",
+        "2023-11-09",
+        8714
+      ]
+    },
+    {
+      "rule_id": "DQ-V2-044",
+      "rule": "market timestamp validity",
+      "status": "PASS",
+      "actual": [
+        "2000-01-01 16:00:00+00:00",
+        "2023-11-09 16:00:00+00:00"
+      ],
+      "expected": [
+        "valid",
+        "full range"
+      ]
+    },
+    {
+      "rule_id": "DQ-V2-045",
+      "rule": "required values complete",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-046",
+      "rule": "customer emails unique",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-047",
+      "rule": "customer phones unique and canonical",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-048",
+      "rule": "every account has a transaction",
+      "status": "PASS",
+      "actual": 0,
+      "expected": 0
+    },
+    {
+      "rule_id": "DQ-V2-049",
+      "rule": "one category per transaction",
+      "status": "PASS",
+      "actual": 1000000,
+      "expected": 1000000
+    },
+    {
+      "rule_id": "DQ-V2-050",
+      "rule": "symbol timestamp uniqueness",
+      "status": "PASS",
+      "actual": 87140,
+      "expected": 87140
+    }
+  ],
+  "distributions": {
+    "transaction_type": {
+      "Transfer": 333881,
+      "Deposit": 333442,
+      "Withdrawal": 332677
+    },
+    "category": {
+      "401": 233871,
+      "402": 66490,
+      "403": 33081,
+      "404": 99739,
+      "405": 65960,
+      "406": 73385,
+      "407": 53370,
+      "408": 40223,
+      "409": 193389,
+      "410": 140492
+    },
+    "accounts_per_customer": {
+      "1": 50000,
+      "2": 50000
+    },
+    "transactions_per_account": {
+      "min": 1,
+      "median": 6.0,
+      "max": 19
+    },
+    "transaction_amount": {
+      "min": 1.0,
+      "median": 5007.35,
+      "mean": 5004.34450667,
+      "max": 10000.0
+    },
+    "account_balance": {
+      "min": 100.02,
+      "median": 5051.025,
+      "mean": 5057.237836866667,
+      "max": 10000.0
+    }
+  }
+}

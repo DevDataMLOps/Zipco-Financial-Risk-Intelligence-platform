@@ -1,0 +1,67 @@
+contract_version: "2.0.0"
+contract_status: "validated"
+dataset: "zipco_relational_v2"
+classification: "synthetic_financial_data"
+generation:
+  seed: 20260812
+  derived_from: "zipco_bank_data.csv distribution profile and unique synthetic names"
+  statement: "This is a deterministic relational remediation dataset, not a reconstruction of real customer history."
+tables:
+  customers:
+    file: "data/customers.csv"
+    primary_key: [CustomerID]
+    fields:
+      CustomerID: "BIGINT NOT NULL"
+      CustomerName: "STRING NOT NULL"
+      EmailAddress: "STRING NOT NULL UNIQUE"
+      PhoneNumber: "STRING NOT NULL UNIQUE"
+  accounts:
+    file: "data/accounts.csv"
+    primary_key: [AccountID]
+    foreign_keys: ["CustomerID -> customers.CustomerID"]
+    fields:
+      AccountID: "BIGINT NOT NULL"
+      CustomerID: "BIGINT NOT NULL"
+      Balance: "DECIMAL(18,2) NOT NULL CHECK (Balance >= 0)"
+  transactions:
+    file: "data/transactions.csv"
+    primary_key: [TransactionID]
+    foreign_keys: ["AccountID -> accounts.AccountID"]
+    partitioning: [TransactionYear]
+    fields:
+      TransactionID: "BIGINT NOT NULL"
+      AccountID: "BIGINT NOT NULL"
+      TransactionDate: "DATE NOT NULL"
+      TransactionType: "STRING NOT NULL ENUM(Deposit,Withdrawal,Transfer)"
+      Amount: "DECIMAL(18,2) NOT NULL CHECK (Amount > 0)"
+  transaction_categories:
+    file: "data/transaction_categories.csv"
+    primary_key: [CategoryID]
+    fields:
+      CategoryID: "BIGINT NOT NULL"
+      CategoryName: "STRING NOT NULL UNIQUE"
+  categorized_transactions:
+    file: "data/categorized_transactions.csv"
+    primary_key: [TransactionID, CategoryID]
+    foreign_keys:
+      - "TransactionID -> transactions.TransactionID"
+      - "CategoryID -> transaction_categories.CategoryID"
+    cardinality: "Exactly one category per transaction in v2"
+    fields:
+      TransactionID: "BIGINT NOT NULL"
+      CategoryID: "BIGINT NOT NULL"
+      TransactionDescription: "STRING NOT NULL"
+  market_data:
+    file: "data/market_data.csv"
+    primary_key: [MarketDataID]
+    alternate_key: [StockSymbol, Timestamp]
+    relationship_note: "Standalone market reference series; not joined to transactions because the supplied dictionary defines no relationship."
+    fields:
+      MarketDataID: "BIGINT NOT NULL"
+      StockSymbol: "STRING NOT NULL"
+      Price: "DECIMAL(18,2) NOT NULL CHECK (Price > 0)"
+      Timestamp: "TIMESTAMP NOT NULL"
+publication:
+  raw_v1: "retain_unchanged"
+  validated_v2: "approved_after_all_dq_rules_pass"
+  curated_parquet: "pending_glue_phase"

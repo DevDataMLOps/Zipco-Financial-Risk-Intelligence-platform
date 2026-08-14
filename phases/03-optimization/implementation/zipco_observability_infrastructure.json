@@ -1,0 +1,421 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Transform": "AWS::LanguageExtensions",
+  "Description": "Operational dashboard, event monitoring, alarms, and Athena benchmark catalog for the ZIPCO Financial Risk Intelligence Platform.",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": ["dev", "test", "prod"]
+    }
+  },
+  "Resources": {
+    "ZipcoBenchmarkDatabase": {
+      "Type": "AWS::Glue::Database",
+      "Properties": {
+        "CatalogId": {"Ref": "AWS::AccountId"},
+        "DatabaseInput": {
+          "Name": "zipco_performance_benchmark",
+          "Description": "Isolated CSV baseline tables used only for repeatable Athena performance comparisons.",
+          "Parameters": {
+            "dataset_version": "2.0.0",
+            "purpose": "athena-performance-benchmark",
+            "managed_by": "CloudFormation"
+          }
+        }
+      }
+    },
+    "ZipcoFailureEventLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "LogGroupName": "/aws/events/zipco-financial-platform/failures",
+        "LogGroupClass": "STANDARD",
+        "RetentionInDays": 30,
+        "ResourcePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowEventBridgeFailureDelivery",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": ["events.amazonaws.com", "delivery.logs.amazonaws.com"]
+              },
+              "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/events/zipco-financial-platform/failures:*"
+              }
+            }
+          ]
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoGlueJobFailureRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": "zipco-glue-job-failures",
+        "Description": "Capture failed, timed out, or stopped ZIPCO Glue job runs.",
+        "State": "ENABLED",
+        "EventPattern": {
+          "source": ["aws.glue"],
+          "detail-type": ["Glue Job State Change"],
+          "detail": {
+            "jobName": ["zipco-relational-v2-validation-transform"],
+            "state": ["FAILED", "TIMEOUT", "STOPPED"]
+          }
+        },
+        "Targets": [
+          {
+            "Id": "ZipcoFailureLog",
+            "Arn": {"Fn::GetAtt": ["ZipcoFailureEventLogGroup", "Arn"]},
+            "RetryPolicy": {"MaximumEventAgeInSeconds": 3600, "MaximumRetryAttempts": 3}
+          }
+        ]
+      }
+    },
+    "ZipcoGlueCrawlerFailureRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": "zipco-glue-crawler-failures",
+        "Description": "Capture failed ZIPCO curated crawler runs.",
+        "State": "ENABLED",
+        "EventPattern": {
+          "source": ["aws.glue"],
+          "detail-type": ["Glue Crawler State Change"],
+          "detail": {
+            "crawlerName": ["zipco-relational-v2-curated-crawler"],
+            "state": ["Failed"]
+          }
+        },
+        "Targets": [
+          {
+            "Id": "ZipcoFailureLog",
+            "Arn": {"Fn::GetAtt": ["ZipcoFailureEventLogGroup", "Arn"]},
+            "RetryPolicy": {"MaximumEventAgeInSeconds": 3600, "MaximumRetryAttempts": 3}
+          }
+        ]
+      }
+    },
+    "ZipcoAthenaFailureRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": "zipco-athena-query-failures",
+        "Description": "Capture failed queries in the governed ZIPCO Athena workgroup.",
+        "State": "ENABLED",
+        "EventPattern": {
+          "source": ["aws.athena"],
+          "detail-type": ["Athena Query State Change"],
+          "detail": {
+            "workgroupName": ["zipco-risk-analytics"],
+            "currentState": ["FAILED"]
+          }
+        },
+        "Targets": [
+          {
+            "Id": "ZipcoFailureLog",
+            "Arn": {"Fn::GetAtt": ["ZipcoFailureEventLogGroup", "Arn"]},
+            "RetryPolicy": {"MaximumEventAgeInSeconds": 3600, "MaximumRetryAttempts": 3}
+          }
+        ]
+      }
+    },
+    "ZipcoFailureMetricFilter": {
+      "Type": "AWS::Logs::MetricFilter",
+      "Properties": {
+        "FilterName": "zipco-pipeline-failure-events",
+        "FilterPattern": "",
+        "LogGroupName": {"Ref": "ZipcoFailureEventLogGroup"},
+        "MetricTransformations": [
+          {
+            "MetricNamespace": "ZIPCO/Operations",
+            "MetricName": "PipelineFailureEvents",
+            "MetricValue": "1",
+            "Unit": "Count"
+          }
+        ]
+      }
+    },
+    "ZipcoPipelineFailureAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": "zipco-pipeline-failure-events",
+        "AlarmDescription": "A governed ZIPCO Glue job, crawler, or Athena query emitted a failure event.",
+        "ActionsEnabled": true,
+        "Namespace": "ZIPCO/Operations",
+        "MetricName": "PipelineFailureEvents",
+        "Statistic": "Sum",
+        "Period": 300,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 1,
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "TreatMissingData": "notBreaching",
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}}
+        ]
+      }
+    },
+    "ZipcoAthenaScanAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": "zipco-athena-successful-dml-scan-spike",
+        "AlarmDescription": "Successful ZIPCO Athena DML queries scanned at least 1 GiB within five minutes.",
+        "ActionsEnabled": true,
+        "Namespace": "AWS/Athena",
+        "MetricName": "ProcessedBytes",
+        "Dimensions": [
+          {"Name": "WorkGroup", "Value": "zipco-risk-analytics"},
+          {"Name": "QueryState", "Value": "SUCCEEDED"},
+          {"Name": "QueryType", "Value": "DML"}
+        ],
+        "Statistic": "Sum",
+        "Period": 300,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 1073741824,
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "TreatMissingData": "notBreaching",
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}}
+        ]
+      }
+    },
+    "ZipcoGlueFailedTaskAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": "zipco-glue-failed-spark-tasks",
+        "AlarmDescription": "The ZIPCO Glue ETL job reported one or more failed Spark tasks.",
+        "ActionsEnabled": true,
+        "Namespace": "Glue",
+        "MetricName": "glue.driver.aggregate.numFailedTasks",
+        "Dimensions": [
+          {"Name": "JobName", "Value": "zipco-relational-v2-validation-transform"},
+          {"Name": "JobRunId", "Value": "ALL"},
+          {"Name": "Type", "Value": "count"}
+        ],
+        "Statistic": "Sum",
+        "Period": 300,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 1,
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "TreatMissingData": "notBreaching",
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}}
+        ]
+      }
+    },
+    "ZipcoOperationsDashboard": {
+      "Type": "AWS::CloudWatch::Dashboard",
+      "Properties": {
+        "DashboardName": "zipco-financial-platform-operations",
+        "DashboardBody": {
+          "Fn::ToJsonString": {
+            "start": "-P7D",
+            "periodOverride": "inherit",
+            "widgets": [
+              {
+                "type": "text",
+                "x": 0,
+                "y": 0,
+                "width": 24,
+                "height": 2,
+                "properties": {
+                  "markdown": "# ZIPCO Financial Platform — Operations & Performance\nGlue ETL health, Athena scan cost and latency, failure events, and measured CSV/Parquet/partition benchmark results."
+                }
+              },
+              {
+                "type": "alarm",
+                "x": 0,
+                "y": 2,
+                "width": 24,
+                "height": 3,
+                "properties": {
+                  "title": "Active operational alarms",
+                  "sortBy": "stateUpdatedTimestamp",
+                  "alarms": [
+                    {"Fn::GetAtt": ["ZipcoPipelineFailureAlarm", "Arn"]},
+                    {"Fn::GetAtt": ["ZipcoAthenaScanAlarm", "Arn"]},
+                    {"Fn::GetAtt": ["ZipcoGlueFailedTaskAlarm", "Arn"]}
+                  ]
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 5,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Benchmark — average data scanned",
+                  "view": "bar",
+                  "region": {"Ref": "AWS::Region"},
+                  "stat": "Average",
+                  "period": 300,
+                  "metrics": [
+                    ["ZIPCO/Performance", "AverageDataScannedBytes", "Strategy", "csv_full", {"label": "CSV full scan"}],
+                    ["ZIPCO/Performance", "AverageDataScannedBytes", "Strategy", "parquet_full", {"label": "Parquet full scan"}],
+                    ["ZIPCO/Performance", "AverageDataScannedBytes", "Strategy", "csv_2023", {"label": "CSV 2023 filter"}],
+                    ["ZIPCO/Performance", "AverageDataScannedBytes", "Strategy", "parquet_partitioned_2023", {"label": "Partitioned Parquet 2023"}]
+                  ],
+                  "yAxis": {"left": {"min": 0, "label": "Bytes"}}
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 5,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Benchmark — average engine execution time",
+                  "view": "bar",
+                  "region": {"Ref": "AWS::Region"},
+                  "stat": "Average",
+                  "period": 300,
+                  "metrics": [
+                    ["ZIPCO/Performance", "AverageEngineExecutionTimeMs", "Strategy", "csv_full", {"label": "CSV full scan"}],
+                    ["ZIPCO/Performance", "AverageEngineExecutionTimeMs", "Strategy", "parquet_full", {"label": "Parquet full scan"}],
+                    ["ZIPCO/Performance", "AverageEngineExecutionTimeMs", "Strategy", "csv_2023", {"label": "CSV 2023 filter"}],
+                    ["ZIPCO/Performance", "AverageEngineExecutionTimeMs", "Strategy", "parquet_partitioned_2023", {"label": "Partitioned Parquet 2023"}]
+                  ],
+                  "yAxis": {"left": {"min": 0, "label": "Milliseconds"}}
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 11,
+                "width": 8,
+                "height": 5,
+                "properties": {
+                  "title": "Measured scan reduction",
+                  "view": "singleValue",
+                  "region": {"Ref": "AWS::Region"},
+                  "stat": "Average",
+                  "period": 300,
+                  "metrics": [
+                    ["ZIPCO/Performance", "ScanReductionPercent", "Comparison", "csv_to_parquet_full", {"label": "CSV → Parquet"}],
+                    ["ZIPCO/Performance", "ScanReductionPercent", "Comparison", "parquet_full_to_partitioned_2023", {"label": "Parquet → partition-pruned"}]
+                  ]
+                }
+              },
+              {
+                "type": "metric",
+                "x": 8,
+                "y": 11,
+                "width": 8,
+                "height": 5,
+                "properties": {
+                  "title": "Athena successful DML bytes scanned",
+                  "view": "timeSeries",
+                  "region": {"Ref": "AWS::Region"},
+                  "stat": "Sum",
+                  "period": 300,
+                  "metrics": [
+                    ["AWS/Athena", "ProcessedBytes", "WorkGroup", "zipco-risk-analytics", "QueryState", "SUCCEEDED", "QueryType", "DML", {"label": "Processed bytes"}]
+                  ],
+                  "yAxis": {"left": {"min": 0, "label": "Bytes"}}
+                }
+              },
+              {
+                "type": "metric",
+                "x": 16,
+                "y": 11,
+                "width": 8,
+                "height": 5,
+                "properties": {
+                  "title": "Athena successful DML latency",
+                  "view": "timeSeries",
+                  "region": {"Ref": "AWS::Region"},
+                  "stat": "Average",
+                  "period": 300,
+                  "metrics": [
+                    ["AWS/Athena", "TotalExecutionTime", "WorkGroup", "zipco-risk-analytics", "QueryState", "SUCCEEDED", "QueryType", "DML", {"label": "Total execution"}],
+                    ["AWS/Athena", "EngineExecutionTime", "WorkGroup", "zipco-risk-analytics", "QueryState", "SUCCEEDED", "QueryType", "DML", {"label": "Engine execution"}]
+                  ],
+                  "yAxis": {"left": {"min": 0, "label": "Milliseconds"}}
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 16,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Glue Spark task outcomes",
+                  "view": "timeSeries",
+                  "region": {"Ref": "AWS::Region"},
+                  "stat": "Sum",
+                  "period": 300,
+                  "metrics": [
+                    ["Glue", "glue.driver.aggregate.numCompletedTasks", "JobName", "zipco-relational-v2-validation-transform", "JobRunId", "ALL", "Type", "count", {"label": "Completed tasks"}],
+                    ["Glue", "glue.driver.aggregate.numFailedTasks", "JobName", "zipco-relational-v2-validation-transform", "JobRunId", "ALL", "Type", "count", {"label": "Failed tasks"}]
+                  ],
+                  "yAxis": {"left": {"min": 0, "label": "Tasks"}}
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 16,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Captured pipeline failure events",
+                  "view": "timeSeries",
+                  "region": {"Ref": "AWS::Region"},
+                  "stat": "Sum",
+                  "period": 300,
+                  "metrics": [
+                    ["ZIPCO/Operations", "PipelineFailureEvents", {"label": "Failure events"}]
+                  ],
+                  "yAxis": {"left": {"min": 0, "label": "Events"}}
+                }
+              },
+              {
+                "type": "log",
+                "x": 0,
+                "y": 22,
+                "width": 24,
+                "height": 6,
+                "properties": {
+                  "title": "Recent governed pipeline failures",
+                  "region": {"Ref": "AWS::Region"},
+                  "view": "table",
+                  "query": "SOURCE '/aws/events/zipco-financial-platform/failures' | fields @timestamp, source, `detail-type`, detail.jobName, detail.crawlerName, detail.workgroupName, detail.state, detail.currentState, detail.queryExecutionId | sort @timestamp desc | limit 20"
+                }
+              }
+            ]
+          }
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "DashboardName": {"Value": {"Ref": "ZipcoOperationsDashboard"}},
+    "FailureLogGroup": {"Value": {"Ref": "ZipcoFailureEventLogGroup"}},
+    "BenchmarkDatabase": {"Value": {"Ref": "ZipcoBenchmarkDatabase"}},
+    "FailureAlarmName": {"Value": {"Ref": "ZipcoPipelineFailureAlarm"}},
+    "DashboardUrl": {
+      "Value": {
+        "Fn::Sub": "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards/dashboard/zipco-financial-platform-operations"
+      }
+    }
+  }
+}

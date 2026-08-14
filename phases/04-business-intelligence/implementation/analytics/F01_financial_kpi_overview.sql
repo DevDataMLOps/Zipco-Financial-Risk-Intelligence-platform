@@ -1,0 +1,2 @@
+SELECT *
+FROM zipco_financial_risk_engine.v_financial_kpis

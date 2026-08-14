@@ -1,0 +1,41 @@
+{
+  "artifact": "ZIPCO Glue ETL and data quality AWS deployment verification",
+  "evidence_status": "TRANSCRIBED_FROM_USER_SUPPLIED_AWS_CONSOLE_OUTPUT",
+  "source_note": "The values below were visible in the AWS CloudShell completion output supplied by the user in this conversation. The deployment runner also uploaded its machine-generated verification record to the S3 metadata prefix; that S3 object was not downloaded into this local package.",
+  "aws": {
+    "account_id": "825999268272",
+    "region": "us-east-2",
+    "bucket": "zipco-financial-platform-825999268272-us-east-2"
+  },
+  "deployment": {
+    "status": "DEPLOYED_RUN_AND_VERIFIED",
+    "cloudformation_stack": "zipco-glue-relational-v2",
+    "glue_job": "zipco-relational-v2-validation-transform",
+    "job_run_id": "jr_0fea46ceb59b223d988702d6c351fb52982f98d2476c3d78bba85f7fd5191bac",
+    "quality_status": "PASS",
+    "publication_allowed": true,
+    "rejected_records": 0,
+    "crawler": "zipco-relational-v2-curated-crawler",
+    "crawler_status": "SUCCEEDED",
+    "catalog_database": "zipco_financial_risk",
+    "catalog_tables": [
+      "zipco_v2_accounts",
+      "zipco_v2_categorized_transactions",
+      "zipco_v2_customers",
+      "zipco_v2_market_data",
+      "zipco_v2_transaction_categories",
+      "zipco_v2_transactions"
+    ],
+    "curated_prefix": "s3://zipco-financial-platform-825999268272-us-east-2/curated/relational_v2/",
+    "remote_machine_record": "s3://zipco-financial-platform-825999268272-us-east-2/metadata/contracts/relational_v2/zipco_glue_deployment_verification.json"
+  },
+  "independent_downstream_confirmation": {
+    "athena_validation_status": "PASS (8/8)",
+    "athena_analytics_status": "PASS (4/4)",
+    "transaction_partitions_verified": 24,
+    "market_data_partitions_verified": 24,
+    "csv_to_parquet_full_scan_reduction_percent": 88.21,
+    "parquet_full_to_partition_pruned_reduction_percent": 95.55
+  }
+}
+

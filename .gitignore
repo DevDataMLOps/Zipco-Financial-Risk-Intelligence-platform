@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Large or generated data
+*.csv
+!phases/**/*.csv
+!evidence/**/*.csv
+*.parquet
+*.xlsx
+*.xls
+*.pdf
+*.zip
+
+# Local AWS outputs
+aws-output/
+athena-results/
+glue/spark-logs/
+

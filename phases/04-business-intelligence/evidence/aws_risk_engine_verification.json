@@ -1,0 +1,27 @@
+{
+  "artifact": "ZIPCO Financial Analytics and Explainable Risk Engine AWS verification",
+  "evidence_status": "TRANSCRIBED_FROM_USER_SUPPLIED_AWS_CONSOLE_OUTPUT",
+  "source_note": "The values below were visible in the successful AWS CloudShell completion output supplied by the user. The authoritative machine-generated deployment record remains at the recorded S3 URI and was not represented as a local AWS export.",
+  "aws": {
+    "account_id": "825999268272",
+    "region": "us-east-2",
+    "bucket": "zipco-financial-platform-825999268272-us-east-2",
+    "workgroup": "zipco-risk-analytics",
+    "risk_database": "zipco_financial_risk_engine"
+  },
+  "deployment": {
+    "status": "DEPLOYED_RUN_AND_VERIFIED",
+    "run_id": "20260813T232432Z-cloudshell",
+    "risk_model": "ZIPCO Explainable Financial Activity Risk Engine v1.0.0",
+    "risk_views": {"passed": 6, "expected": 6},
+    "validation_status": "PASS",
+    "validations": {"passed": 10, "expected": 10},
+    "financial_analytics_queries": {"passed": 6, "expected": 6},
+    "saved_risk_queries": {"passed": 6, "expected": 6},
+    "critical_entities": {"transactions": 13978, "accounts": 9384, "customers": 6354},
+    "total_data_scanned_bytes": 147736591,
+    "authoritative_evidence": "s3://zipco-financial-platform-825999268272-us-east-2/risk-engine/evidence/run_id=20260813T232432Z-cloudshell/zipco_risk_engine_deployment_verification.json",
+    "latest_contract_copy": "s3://zipco-financial-platform-825999268272-us-east-2/metadata/contracts/risk_engine/zipco_risk_engine_deployment_verification_latest.json"
+  }
+}
+

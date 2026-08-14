@@ -1,0 +1,80 @@
+{
+  "contract_version": "1.1.0",
+  "contract_status": "DEPLOYED_RUN_AND_VERIFIED",
+  "model": {
+    "name": "ZIPCO Explainable Financial Activity Risk Engine",
+    "version": "1.0.0",
+    "type": "deterministic_rules",
+    "purpose": "Explainable portfolio monitoring and analyst queue prioritization for a synthetic demonstration dataset."
+  },
+  "dataset": {
+    "name": "ZIPCO Relational Dataset v2",
+    "version": "2.0.0",
+    "classification": "synthetic_financial_data",
+    "populations": {"transactions": 1000000, "accounts": 150000, "customers": 100000}
+  },
+  "aws": {
+    "account_id": "825999268272",
+    "region": "us-east-2",
+    "bucket": "zipco-financial-platform-825999268272-us-east-2",
+    "workgroup": "zipco-risk-analytics",
+    "source_database": "zipco_financial_risk",
+    "baseline_analytics_database": "zipco_financial_analytics",
+    "risk_database": "zipco_financial_risk_engine"
+  },
+  "semantic_layer": {
+    "views": [
+      "v_risk_transaction_features",
+      "v_risk_transaction_scores",
+      "v_risk_account_scores",
+      "v_risk_customer_scores",
+      "v_financial_kpis",
+      "v_monthly_risk_trends"
+    ],
+    "analytics_products": [
+      "F01_financial_kpi_overview",
+      "F02_risk_distribution",
+      "F03_customer_review_queue",
+      "F04_transaction_alert_queue",
+      "F05_monthly_risk_trends",
+      "F06_category_risk_profile"
+    ],
+    "saved_query_count": 6
+  },
+  "scoring": {
+    "minimum": 0,
+    "maximum": 100,
+    "bands": [
+      {"name": "LOW", "minimum": 0, "maximum": 29},
+      {"name": "MEDIUM", "minimum": 30, "maximum": 49},
+      {"name": "HIGH", "minimum": 50, "maximum": 69},
+      {"name": "CRITICAL", "minimum": 70, "maximum": 100}
+    ],
+    "component_counts": {"transaction": 6, "account": 5, "customer": 4},
+    "explainability": "Every non-zero score must have one or more reason codes; component points must reconcile to the capped score.",
+    "excluded_from_scoring": ["customer name", "email address", "phone number", "market data"]
+  },
+  "aws_verified_run": {
+    "run_id": "20260813T232432Z-cloudshell",
+    "status": "DEPLOYED_RUN_AND_VERIFIED",
+    "views": {"passed": 6, "expected": 6},
+    "validations": {"passed": 10, "expected": 10},
+    "analytics_queries": {"passed": 6, "expected": 6},
+    "saved_queries": {"passed": 6, "expected": 6},
+    "critical_entities": {"transactions": 13978, "accounts": 9384, "customers": 6354},
+    "athena_bytes_scanned": 147736591,
+    "evidence": "s3://zipco-financial-platform-825999268272-us-east-2/risk-engine/evidence/run_id=20260813T232432Z-cloudshell/zipco_risk_engine_deployment_verification.json"
+  },
+  "responsible_use": {
+    "prohibited_representations": [
+      "fraud determination",
+      "anti-money-laundering disposition",
+      "credit underwriting",
+      "adverse action",
+      "customer eligibility decision",
+      "production use without independent validation and governance approval"
+    ],
+    "human_review_required": true
+  }
+}
+

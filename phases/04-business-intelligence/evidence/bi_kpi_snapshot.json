@@ -1,0 +1,56 @@
+{
+  "transaction_count": 1000000,
+  "transaction_value": "5004344506.67",
+  "deposit_value": "1669546315.82",
+  "withdrawal_value": "1664683573.22",
+  "transfer_value": "1670114617.63",
+  "high_value_transaction_count": 100188,
+  "first_transaction_date": "2000-01-01",
+  "last_transaction_date": "2023-11-09",
+  "average_transaction_amount": "5004.34",
+  "net_cash_flow": "-1665251875.03",
+  "account_count": 150000,
+  "total_balance": "758585675.53",
+  "customer_count": 100000,
+  "external_transfer_count": 140492,
+  "transaction_type_summary": {
+    "Deposit": {
+      "count": 333442,
+      "value": "1669546315.82"
+    },
+    "Transfer": {
+      "count": 333881,
+      "value": "1670114617.63"
+    },
+    "Withdrawal": {
+      "count": 332677,
+      "value": "1664683573.22"
+    }
+  },
+  "source": "ZIPCO Relational Dataset v2 CSV; financial totals are covered by deployed validation RE-008 PASS",
+  "aws_verified_critical_counts": {
+    "transactions": 13978,
+    "accounts": 9384,
+    "customers": 6354
+  },
+  "predeployment_calibration_band_counts": {
+    "transactions": {
+      "LOW": 713799,
+      "MEDIUM": 189526,
+      "HIGH": 82701,
+      "CRITICAL": 13974
+    },
+    "accounts": {
+      "LOW": 57481,
+      "MEDIUM": 36441,
+      "HIGH": 46732,
+      "CRITICAL": 9346
+    },
+    "customers": {
+      "LOW": 39426,
+      "MEDIUM": 12548,
+      "HIGH": 41813,
+      "CRITICAL": 6213
+    }
+  }
+}

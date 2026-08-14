@@ -1,0 +1,25 @@
+{
+  "artifact": "ZIPCO Athena Analytics and Query Validation",
+  "version": "1.0.0",
+  "dataset_version": "2.0.0",
+  "created_at_utc": "2026-08-13T02:21:50Z",
+  "target_account": "825999268272",
+  "target_region": "us-east-2",
+  "contents": {
+    "cloudformation_templates": 1,
+    "deployment_scripts": 1,
+    "analytics_contracts": 1,
+    "view_definitions": 4,
+    "validation_queries": 8,
+    "analytics_queries": 4,
+    "runbooks": 1
+  },
+  "local_verification": {
+    "cloudformation_json": "PASS",
+    "sql_structure": "PASS",
+    "validation_contract": "PASS",
+    "bash_syntax": "PASS",
+    "linux_line_endings": "PASS",
+    "aws_execution": "PENDING_CLOUDSHELL_RUN"
+  }
+}

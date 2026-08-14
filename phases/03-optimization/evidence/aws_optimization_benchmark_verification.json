@@ -1,0 +1,37 @@
+{
+  "artifact": "ZIPCO Athena, Parquet, partition, monitoring, and optimization verification",
+  "evidence_status": "TRANSCRIBED_FROM_USER_SUPPLIED_AWS_CONSOLE_OUTPUT",
+  "source_note": "The values below were visible in the successful AWS CloudShell completion output supplied by the user. Exact per-query bytes, timings, execution IDs, and signatures remain in the AWS-generated benchmark and deployment JSON files under the recorded S3 evidence prefix and were not invented for this local package.",
+  "aws": {
+    "account_id": "825999268272",
+    "region": "us-east-2",
+    "bucket": "zipco-financial-platform-825999268272-us-east-2",
+    "cloudformation_stack": "zipco-observability-performance",
+    "athena_workgroup": "zipco-risk-analytics"
+  },
+  "deployment": {
+    "status": "DEPLOYED_RUN_AND_VERIFIED",
+    "run_id": "20260813T224904Z-cloudshell",
+    "dashboard_name": "zipco-financial-platform-operations",
+    "dashboard_url": "https://us-east-2.console.aws.amazon.com/cloudwatch/home?region=us-east-2#dashboards/dashboard/zipco-financial-platform-operations",
+    "monitoring_rules": {"verified": 3, "expected": 3},
+    "cloudwatch_alarms": {"verified": 3, "expected": 3}
+  },
+  "benchmark": {
+    "strategies_verified": 4,
+    "iterations_per_strategy": 3,
+    "result_reuse_enabled": false,
+    "result_reconciliation": "PASS",
+    "csv_to_parquet_full_scan_reduction_percent": 88.21,
+    "parquet_full_to_partition_pruned_2023_reduction_percent": 95.55,
+    "partitions": {"transactions": 24, "market_data": 24}
+  },
+  "authoritative_aws_artifacts": {
+    "run_prefix": "s3://zipco-financial-platform-825999268272-us-east-2/performance/evidence/run_id=20260813T224904Z-cloudshell/",
+    "benchmark_json": "s3://zipco-financial-platform-825999268272-us-east-2/performance/evidence/run_id=20260813T224904Z-cloudshell/zipco_athena_performance_benchmark.json",
+    "benchmark_csv": "s3://zipco-financial-platform-825999268272-us-east-2/performance/evidence/run_id=20260813T224904Z-cloudshell/zipco_athena_performance_benchmark.csv",
+    "deployment_verification": "s3://zipco-financial-platform-825999268272-us-east-2/performance/evidence/run_id=20260813T224904Z-cloudshell/zipco_observability_deployment_verification.json",
+    "latest_contract_copy": "s3://zipco-financial-platform-825999268272-us-east-2/metadata/contracts/relational_v2/zipco_observability_deployment_verification.json"
+  }
+}
+

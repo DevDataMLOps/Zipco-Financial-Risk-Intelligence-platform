@@ -1,0 +1,42 @@
+{
+  "contract_version": "1.0.0",
+  "dataset": "ZIPCO Relational Dataset v2",
+  "dataset_version": "2.0.0",
+  "status": "READY_FOR_AWS_EXECUTION",
+  "account_id": "825999268272",
+  "region": "us-east-2",
+  "source_database": "zipco_financial_risk",
+  "analytics_database": "zipco_financial_analytics",
+  "workgroup": {
+    "name": "zipco-risk-analytics",
+    "engine": "Athena engine version 3",
+    "enforce_configuration": true,
+    "query_result_encryption": "SSE_S3",
+    "cloudwatch_metrics": true,
+    "bytes_scanned_cutoff_per_query": 524288000
+  },
+  "views": [
+    "v_transaction_enriched",
+    "v_customer_portfolio",
+    "v_account_risk_signals",
+    "v_monthly_risk_metrics"
+  ],
+  "validation_rules": [
+    {"rule_id": "QV-ATH-001", "name": "exact_row_counts", "expected": "PASS"},
+    {"rule_id": "QV-ATH-002", "name": "key_integrity", "expected": "PASS"},
+    {"rule_id": "QV-ATH-003", "name": "foreign_keys", "expected": "PASS"},
+    {"rule_id": "QV-ATH-004", "name": "relationship_cardinality", "expected": "PASS"},
+    {"rule_id": "QV-ATH-005", "name": "domains_and_ranges", "expected": "PASS"},
+    {"rule_id": "QV-ATH-006", "name": "transaction_category_compatibility", "expected": "PASS"},
+    {"rule_id": "QV-ATH-007", "name": "date_and_partition_integrity", "expected": "PASS"},
+    {"rule_id": "QV-ATH-008", "name": "view_reconciliation", "expected": "PASS"}
+  ],
+  "analytics_queries": [
+    "executive_summary",
+    "risk_band_summary",
+    "category_profile",
+    "market_summary"
+  ],
+  "risk_model_note": "Activity risk bands are transparent portfolio-monitoring heuristics for demonstration; they are not fraud determinations or credit decisions.",
+  "publication_gate": "Deployment passes only when all eight validations pass, all four views exist, all four analytics queries return data, and four saved queries are registered."
+}

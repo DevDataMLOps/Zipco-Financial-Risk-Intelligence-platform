@@ -1,0 +1,280 @@
+contract_version: "1.0.0"
+contract_status: "draft_blocked_by_source_integrity"
+dataset: "zipco_bank_flat"
+platform: "ZIPCO Financial Risk Intelligence Platform"
+profile_as_of: "2026-08-12"
+
+source:
+  format: "csv"
+  encoding: "utf-8"
+  delimiter: ","
+  header: true
+  expected_file_name: "zipco_bank_data.csv"
+  baseline:
+    bytes: 154501154
+    sha256: "fe58c2828d44c37a63fed441fedbfcb0c9a8563319f2ab445ad84c7649a51202"
+    rows: 1000000
+    columns: 14
+  raw_zone:
+    path_pattern: "raw/zipco_bank_flat/ingestion_date={YYYY-MM-DD}/"
+    immutable: true
+    preserve_original_bytes: true
+
+validated_flat:
+  table: "zipco_validated_flat"
+  publication_status: "diagnostic_or_quarantine_only"
+  reliable_primary_key: "source_record_id"
+  source_record_id_definition: "sha256 of canonical source row plus source file identity"
+  fields:
+    - source: "CustomerID"
+      target: "customer_id"
+      type: "BIGINT"
+      nullable: false
+      sensitivity: "internal_identifier"
+      constraints: ["integer"]
+      key_status: "not_reliable_as_entity_key"
+    - source: "CustomerName"
+      target: "customer_name"
+      type: "STRING"
+      nullable: false
+      sensitivity: "restricted_pii"
+      constraints: ["trimmed", "non_blank"]
+    - source: "EmailAddress"
+      target: "email_address"
+      type: "STRING"
+      nullable: false
+      sensitivity: "restricted_pii"
+      constraints: ["basic_email_format"]
+    - source: "PhoneNumber"
+      target: "phone_number"
+      type: "STRING"
+      nullable: false
+      sensitivity: "restricted_pii"
+      constraints: ["digits_in_source", "canonicalize_to_e164_like_string"]
+      note: "Dictionary defines string; CSV inference is int64. Never store phone as numeric."
+    - source: "AccountID"
+      target: "account_id"
+      type: "BIGINT"
+      nullable: false
+      sensitivity: "restricted_financial_identifier"
+      constraints: ["integer"]
+      key_status: "not_reliable_as_entity_key"
+    - source: "Balance"
+      target: "balance"
+      type: "DECIMAL(18,2)"
+      nullable: false
+      sensitivity: "confidential_financial"
+      constraints: ["greater_than_or_equal_to_zero"]
+    - source: "TransactionID"
+      target: "transaction_id"
+      type: "BIGINT"
+      nullable: false
+      sensitivity: "restricted_financial_identifier"
+      constraints: ["integer"]
+      key_status: "not_reliable_as_entity_key"
+    - source: "TransactionDate"
+      target: "transaction_date"
+      type: "DATE"
+      nullable: false
+      sensitivity: "confidential_financial"
+      constraints: ["iso_date", "not_after_ingestion_date"]
+    - source: "TransactionType"
+      target: "transaction_type"
+      type: "STRING"
+      nullable: false
+      sensitivity: "confidential_financial"
+      allowed_values: ["Deposit", "Withdrawal", "Transfer"]
+    - source: "Amount"
+      target: "amount"
+      type: "DECIMAL(18,2)"
+      nullable: false
+      sensitivity: "confidential_financial"
+      constraints: ["greater_than_zero"]
+      note: "Direction is encoded by transaction_type; preserve source amount sign."
+    - source: "CategoryID"
+      target: "category_id"
+      type: "BIGINT"
+      nullable: false
+      sensitivity: "internal_identifier"
+      constraints: ["integer"]
+      reference_status: "unresolved_missing_category_name"
+    - source: "TransactionDescription"
+      target: "transaction_description"
+      type: "STRING"
+      nullable: false
+      sensitivity: "confidential_financial"
+      constraints: ["trimmed", "non_blank"]
+    - source: "MarketDataID"
+      target: "market_data_id"
+      type: "BIGINT"
+      nullable: false
+      sensitivity: "internal_identifier"
+      constraints: ["integer"]
+      key_status: "not_reliable_as_entity_key"
+    - source: "Price"
+      target: "price"
+      type: "DECIMAL(18,2)"
+      nullable: false
+      sensitivity: "internal_market_data"
+      constraints: ["greater_than_zero"]
+  system_fields:
+    - {name: "source_record_id", type: "STRING", nullable: false}
+    - {name: "source_file", type: "STRING", nullable: false}
+    - {name: "source_row_number", type: "BIGINT", nullable: false}
+    - {name: "pipeline_run_id", type: "STRING", nullable: false}
+    - {name: "ingested_at", type: "TIMESTAMP", nullable: false}
+    - {name: "dq_status", type: "STRING", nullable: false}
+    - {name: "dq_error_codes", type: "ARRAY<STRING>", nullable: false}
+
+dictionary_reconciliation:
+  intended_tables:
+    - "customers"
+    - "accounts"
+    - "transactions"
+    - "transaction_categories"
+    - "categorized_transactions"
+    - "market_data"
+  missing_fields:
+    - "CategoryName"
+    - "StockSymbol"
+    - "Timestamp"
+  undocumented_csv_fields: []
+  unresolved_semantics:
+    - "Relationship between MarketData and Transactions is not defined in the dictionary."
+
+target_curated_model:
+  publication_gate: "blocked"
+  tables:
+    customers:
+      primary_key: ["customer_id"]
+      fields:
+        customer_id: "BIGINT NOT NULL"
+        customer_name: "STRING NOT NULL"
+        email_address: "STRING NOT NULL"
+        phone_number: "STRING NOT NULL"
+      required_dependencies:
+        - "customer_id -> customer_name, email_address, phone_number"
+    accounts:
+      primary_key: ["account_id"]
+      foreign_keys:
+        - "customer_id -> customers.customer_id"
+      fields:
+        account_id: "BIGINT NOT NULL"
+        customer_id: "BIGINT NOT NULL"
+        balance: "DECIMAL(18,2) NOT NULL"
+      required_dependencies:
+        - "account_id -> customer_id, balance"
+    transactions:
+      primary_key: ["transaction_id"]
+      foreign_keys:
+        - "account_id -> accounts.account_id"
+      fields:
+        transaction_id: "BIGINT NOT NULL"
+        account_id: "BIGINT NOT NULL"
+        transaction_date: "DATE NOT NULL"
+        transaction_type: "STRING NOT NULL"
+        amount: "DECIMAL(18,2) NOT NULL"
+      required_dependencies:
+        - "transaction_id -> account_id, transaction_date, transaction_type, amount"
+      partitioning:
+        initial: ["transaction_year"]
+        conditional_future: ["transaction_year", "transaction_month"]
+        prohibited_for_baseline: ["transaction_day"]
+    transaction_categories:
+      primary_key: ["category_id"]
+      fields:
+        category_id: "BIGINT NOT NULL"
+        category_name: "STRING NOT NULL"
+    categorized_transactions:
+      primary_key: ["transaction_id", "category_id"]
+      foreign_keys:
+        - "transaction_id -> transactions.transaction_id"
+        - "category_id -> transaction_categories.category_id"
+      fields:
+        transaction_id: "BIGINT NOT NULL"
+        category_id: "BIGINT NOT NULL"
+        transaction_description: "STRING"
+    market_data:
+      primary_key: ["market_data_id"]
+      fields:
+        market_data_id: "BIGINT NOT NULL"
+        stock_symbol: "STRING NOT NULL"
+        price: "DECIMAL(18,2) NOT NULL"
+        market_timestamp: "TIMESTAMP NOT NULL"
+      required_dependencies:
+        - "market_data_id -> stock_symbol, price, market_timestamp"
+
+quality_rules:
+  - id: "DQ-SCH-001"
+    severity: "critical"
+    assertion: "All dictionary-required fields are present."
+    baseline_result: "fail"
+    error_code: "MISSING_DICTIONARY_FIELDS"
+  - id: "DQ-CMP-001"
+    severity: "high"
+    assertion: "Required source values are non-null and non-blank."
+    baseline_result: "pass"
+  - id: "DQ-DUP-001"
+    severity: "medium"
+    assertion: "Exact source rows are unique within a file."
+    baseline_result: "pass"
+  - id: "DQ-DOM-001"
+    severity: "high"
+    assertion: "transaction_type is Deposit, Withdrawal, or Transfer."
+    baseline_result: "pass"
+  - id: "DQ-VAL-001"
+    severity: "high"
+    assertion: "balance >= 0 and amount > 0 and price > 0."
+    baseline_result: "pass"
+  - id: "DQ-DATE-001"
+    severity: "high"
+    assertion: "transaction_date parses and is not after ingestion date."
+    baseline_result: "pass"
+  - id: "DQ-ENT-001"
+    severity: "critical"
+    assertion: "customer_id determines one customer identity."
+    baseline_result: "fail_all_10_keys"
+    error_code: "INCONSISTENT_CUSTOMER_ENTITY"
+  - id: "DQ-REL-001"
+    severity: "critical"
+    assertion: "account_id belongs to exactly one customer_id."
+    baseline_result: "fail_all_10_keys"
+    error_code: "ACCOUNT_CUSTOMER_CONFLICT"
+  - id: "DQ-ENT-002"
+    severity: "critical"
+    assertion: "transaction_id determines one transaction."
+    baseline_result: "fail_all_10_keys"
+    error_code: "INCONSISTENT_TRANSACTION_ENTITY"
+  - id: "DQ-ENT-003"
+    severity: "critical"
+    assertion: "market_data_id determines one market observation."
+    baseline_result: "fail_all_10_keys"
+    error_code: "INCONSISTENT_MARKET_DATA_ENTITY"
+  - id: "DQ-REF-001"
+    severity: "critical"
+    assertion: "category_id resolves to category_name."
+    baseline_result: "fail_missing_reference_field"
+    error_code: "UNRESOLVED_CATEGORY"
+  - id: "DQ-REF-002"
+    severity: "critical"
+    assertion: "market data includes stock_symbol and market_timestamp."
+    baseline_result: "fail_missing_reference_fields"
+    error_code: "INCOMPLETE_MARKET_DATA"
+
+publication_policy:
+  raw:
+    allow: true
+  validated_flat:
+    allow_for: ["profiling", "pipeline_testing", "quarantine_demo", "athena_format_benchmark"]
+    deny_for: ["customer_360", "account_history", "transaction_history", "risk_scoring", "market_analysis"]
+  normalized_curated:
+    allow: false
+    unblock_when:
+      - "Stable primary-key functional dependencies pass."
+      - "All foreign keys resolve."
+      - "CategoryName, StockSymbol, and Timestamp are supplied."
+      - "MarketData-to-Transactions relationship is defined."
+  prohibited_remediation:
+    - "Do not choose first/last/min/max/mode records per broken ID without an approved business rule."
+    - "Do not claim declared IDs are unique after silent deduplication."
+

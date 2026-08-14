@@ -1,0 +1,14 @@
+entity_level,risk_band,entity_count,population,share_percent,evidence_scope
+TRANSACTION,LOW,713799,1000000,71.3799,predeployment_exact_percentile_calibration
+TRANSACTION,MEDIUM,189526,1000000,18.9526,predeployment_exact_percentile_calibration
+TRANSACTION,HIGH,82701,1000000,8.2701,predeployment_exact_percentile_calibration
+TRANSACTION,CRITICAL,13974,1000000,1.3974,predeployment_exact_percentile_calibration
+ACCOUNT,LOW,57481,150000,38.3207,predeployment_exact_percentile_calibration
+ACCOUNT,MEDIUM,36441,150000,24.2940,predeployment_exact_percentile_calibration
+ACCOUNT,HIGH,46732,150000,31.1547,predeployment_exact_percentile_calibration
+ACCOUNT,CRITICAL,9346,150000,6.2307,predeployment_exact_percentile_calibration
+CUSTOMER,LOW,39426,100000,39.4260,predeployment_exact_percentile_calibration
+CUSTOMER,MEDIUM,12548,100000,12.5480,predeployment_exact_percentile_calibration
+CUSTOMER,HIGH,41813,100000,41.8130,predeployment_exact_percentile_calibration
+CUSTOMER,CRITICAL,6213,100000,6.2130,predeployment_exact_percentile_calibration
+

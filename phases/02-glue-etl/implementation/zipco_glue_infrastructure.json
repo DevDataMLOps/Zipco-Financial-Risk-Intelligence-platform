@@ -1,0 +1,201 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS Glue validation, quarantine, Parquet transformation, and catalog resources for ZIPCO Relational Dataset v2.",
+  "Parameters": {
+    "BucketName": {
+      "Type": "String",
+      "Default": "zipco-financial-platform-825999268272-us-east-2"
+    },
+    "Environment": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": ["dev", "test", "prod"]
+    }
+  },
+  "Resources": {
+    "ZipcoGlueRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-glue-relational-v2-${Environment}"},
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"Service": "glue.amazonaws.com"},
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
+        ],
+        "Policies": [
+          {
+            "PolicyName": "zipco-s3-data-lake-access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "ListScopedBucketPrefixes",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetBucketLocation", "s3:ListBucket"],
+                  "Resource": {"Fn::Sub": "arn:aws:s3:::${BucketName}"},
+                  "Condition": {
+                    "StringLike": {
+                      "s3:prefix": [
+                        "validated/relational_v2/*",
+                        "curated/relational_v2/*",
+                        "quarantine/relational_v2/*",
+                        "quality/relational_v2/*",
+                        "glue/scripts/*",
+                        "glue/temp/*",
+                        "glue/spark-logs/*"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "Sid": "ReadValidatedAndJobScript",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                  "Resource": [
+                    {"Fn::Sub": "arn:aws:s3:::${BucketName}/validated/relational_v2/*"},
+                    {"Fn::Sub": "arn:aws:s3:::${BucketName}/glue/scripts/*"}
+                  ]
+                },
+                {
+                  "Sid": "WritePipelineOutputs",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+                  "Resource": [
+                    {"Fn::Sub": "arn:aws:s3:::${BucketName}/curated/relational_v2/*"},
+                    {"Fn::Sub": "arn:aws:s3:::${BucketName}/quarantine/relational_v2/*"},
+                    {"Fn::Sub": "arn:aws:s3:::${BucketName}/quality/relational_v2/*"},
+                    {"Fn::Sub": "arn:aws:s3:::${BucketName}/glue/temp/*"},
+                    {"Fn::Sub": "arn:aws:s3:::${BucketName}/glue/spark-logs/*"}
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoGlueSecurityConfiguration": {
+      "Type": "AWS::Glue::SecurityConfiguration",
+      "Properties": {
+        "Name": {"Fn::Sub": "zipco-relational-v2-security-${Environment}"},
+        "EncryptionConfiguration": {
+          "S3Encryptions": [{"S3EncryptionMode": "SSE-S3"}],
+          "CloudWatchEncryption": {"CloudWatchEncryptionMode": "DISABLED"},
+          "JobBookmarksEncryption": {"JobBookmarksEncryptionMode": "DISABLED"}
+        }
+      }
+    },
+    "ZipcoGlueDatabase": {
+      "Type": "AWS::Glue::Database",
+      "Properties": {
+        "CatalogId": {"Ref": "AWS::AccountId"},
+        "DatabaseInput": {
+          "Name": "zipco_financial_risk",
+          "Description": "Curated ZIPCO Relational Dataset v2 tables for Athena analytics.",
+          "LocationUri": {"Fn::Sub": "s3://${BucketName}/curated/relational_v2/"},
+          "Parameters": {
+            "classification": "synthetic-financial-data",
+            "dataset_version": "2.0.0"
+          }
+        }
+      }
+    },
+    "ZipcoGlueJob": {
+      "Type": "AWS::Glue::Job",
+      "Properties": {
+        "Name": "zipco-relational-v2-validation-transform",
+        "Description": "Validate six normalized ZIPCO CSV tables, quarantine rejected records, and write Snappy Parquet.",
+        "Role": {"Fn::GetAtt": ["ZipcoGlueRole", "Arn"]},
+        "Command": {
+          "Name": "glueetl",
+          "ScriptLocation": {"Fn::Sub": "s3://${BucketName}/glue/scripts/zipco_relational_v2_etl.py"}
+        },
+        "GlueVersion": "5.1",
+        "WorkerType": "G.1X",
+        "NumberOfWorkers": 2,
+        "ExecutionClass": "STANDARD",
+        "ExecutionProperty": {"MaxConcurrentRuns": 1},
+        "MaxRetries": 0,
+        "Timeout": 60,
+        "SecurityConfiguration": {"Ref": "ZipcoGlueSecurityConfiguration"},
+        "DefaultArguments": {
+          "--job-language": "python",
+          "--job-bookmark-option": "job-bookmark-disable",
+          "--enable-auto-scaling": "true",
+          "--enable-metrics": "true",
+          "--enable-observability-metrics": "true",
+          "--enable-continuous-cloudwatch-log": "true",
+          "--enable-spark-ui": "true",
+          "--spark-event-logs-path": {"Fn::Sub": "s3://${BucketName}/glue/spark-logs/"},
+          "--TempDir": {"Fn::Sub": "s3://${BucketName}/glue/temp/"},
+          "--BUCKET": {"Ref": "BucketName"},
+          "--SOURCE_PREFIX": "validated/relational_v2",
+          "--CURATED_PREFIX": "curated/relational_v2",
+          "--QUARANTINE_PREFIX": "quarantine/relational_v2",
+          "--QUALITY_PREFIX": "quality/relational_v2",
+          "--PIPELINE_RUN_ID": "AUTO",
+          "--MAX_REJECT_RATE": "0.01"
+        },
+        "Tags": {
+          "Project": "zipco-financial-risk-platform",
+          "Environment": {"Ref": "Environment"},
+          "DatasetVersion": "2.0.0",
+          "ManagedBy": "CloudFormation"
+        }
+      }
+    },
+    "ZipcoCuratedCrawler": {
+      "Type": "AWS::Glue::Crawler",
+      "Properties": {
+        "Name": "zipco-relational-v2-curated-crawler",
+        "Description": "Catalog the six validated ZIPCO v2 Parquet outputs and transaction/market year partitions.",
+        "Role": {"Fn::GetAtt": ["ZipcoGlueRole", "Arn"]},
+        "DatabaseName": {"Ref": "ZipcoGlueDatabase"},
+        "CrawlerSecurityConfiguration": {"Ref": "ZipcoGlueSecurityConfiguration"},
+        "TablePrefix": "zipco_v2_",
+        "Targets": {
+          "S3Targets": [
+            {"Path": {"Fn::Sub": "s3://${BucketName}/curated/relational_v2/customers/"}},
+            {"Path": {"Fn::Sub": "s3://${BucketName}/curated/relational_v2/accounts/"}},
+            {"Path": {"Fn::Sub": "s3://${BucketName}/curated/relational_v2/transactions/"}},
+            {"Path": {"Fn::Sub": "s3://${BucketName}/curated/relational_v2/transaction_categories/"}},
+            {"Path": {"Fn::Sub": "s3://${BucketName}/curated/relational_v2/categorized_transactions/"}},
+            {"Path": {"Fn::Sub": "s3://${BucketName}/curated/relational_v2/market_data/"}}
+          ]
+        },
+        "RecrawlPolicy": {"RecrawlBehavior": "CRAWL_EVERYTHING"},
+        "SchemaChangePolicy": {
+          "UpdateBehavior": "UPDATE_IN_DATABASE",
+          "DeleteBehavior": "LOG"
+        },
+        "Configuration": "{\"Version\":1.0,\"CrawlerOutput\":{\"Partitions\":{\"AddOrUpdateBehavior\":\"InheritFromTable\"},\"Tables\":{\"AddOrUpdateBehavior\":\"MergeNewColumns\"}}}",
+        "Tags": {
+          "Project": "zipco-financial-risk-platform",
+          "Environment": {"Ref": "Environment"},
+          "ManagedBy": "CloudFormation"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "GlueRoleArn": {"Value": {"Fn::GetAtt": ["ZipcoGlueRole", "Arn"]}},
+    "GlueDatabase": {"Value": {"Ref": "ZipcoGlueDatabase"}},
+    "GlueJob": {"Value": {"Ref": "ZipcoGlueJob"}},
+    "GlueCrawler": {"Value": {"Ref": "ZipcoCuratedCrawler"}},
+    "CuratedPrefix": {"Value": {"Fn::Sub": "s3://${BucketName}/curated/relational_v2/"}},
+    "QualityPrefix": {"Value": {"Fn::Sub": "s3://${BucketName}/quality/relational_v2/"}}
+  }
+}

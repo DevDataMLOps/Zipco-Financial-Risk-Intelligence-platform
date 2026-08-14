@@ -1,0 +1,37 @@
+{
+  "artifact": "ZIPCO Glue Validation and Transformation",
+  "version": "1.0.0",
+  "dataset_version": "2.0.0",
+  "target_account": "825999268272",
+  "target_region": "us-east-2",
+  "created_at_utc": "2026-08-13T01:26:07Z",
+  "local_verification": {
+    "six_source_manifest_contract": "PASS",
+    "etl_python_syntax": "PASS",
+    "cloudformation_contract": "PASS",
+    "bash_syntax": "PASS",
+    "aws_deployment": "PENDING_CLOUDSHELL_RUN"
+  },
+  "files": [
+    {
+      "name": "deploy_and_run_zipco_glue.sh",
+      "bytes": 9546,
+      "sha256": "6d89f28a8f0093f570ed0954f1c70ee2039e9a4ab693c599484fd6245a46293f"
+    },
+    {
+      "name": "README.md",
+      "bytes": 2493,
+      "sha256": "77ccea610a4f486dbb3172460a29041d0c4b74ea6b7903d63fbd9b7f1dbdfa3e"
+    },
+    {
+      "name": "zipco_glue_infrastructure.json",
+      "bytes": 8413,
+      "sha256": "e62cea9080e1bd826a0236379a5e99a5533407e67e9776b780ed64a5920de82b"
+    },
+    {
+      "name": "zipco_relational_v2_etl.py",
+      "bytes": 19143,
+      "sha256": "d5b23a8edabaeaa25ba00a5053916a527b01f0025022cce26bf9e2eb712b747d"
+    }
+  ]
+}

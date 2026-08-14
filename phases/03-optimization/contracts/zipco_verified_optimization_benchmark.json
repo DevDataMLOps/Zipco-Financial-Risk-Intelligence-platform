@@ -1,0 +1,63 @@
+{
+  "contract_version": "1.1.0",
+  "contract_status": "DEPLOYED_RUN_AND_VERIFIED",
+  "dataset": "ZIPCO Relational Dataset v2",
+  "dataset_version": "2.0.0",
+  "aws": {
+    "account_id": "825999268272",
+    "region": "us-east-2",
+    "bucket": "zipco-financial-platform-825999268272-us-east-2",
+    "athena_workgroup": "zipco-risk-analytics",
+    "source_database": "zipco_financial_risk",
+    "benchmark_database": "zipco_performance_benchmark",
+    "dashboard": "zipco-financial-platform-operations"
+  },
+  "execution": {
+    "run_id": "20260813T224904Z-cloudshell",
+    "strategies": [
+      {"name": "csv_full", "format": "CSV", "scope": "full", "sql": "B01_csv_full.sql"},
+      {"name": "parquet_full", "format": "Parquet", "scope": "full", "sql": "B02_parquet_full.sql"},
+      {"name": "csv_2023", "format": "CSV", "scope": "year_2023", "sql": "B03_csv_2023.sql"},
+      {"name": "parquet_partitioned_2023", "format": "Parquet", "scope": "year_2023", "sql": "B04_parquet_partitioned_2023.sql"}
+    ],
+    "iterations_per_strategy": 3,
+    "measured_query_executions": 12,
+    "result_reuse_enabled": false,
+    "metrics": ["data_scanned_bytes", "engine_execution_ms", "total_execution_ms"],
+    "result_rows_per_query": 3,
+    "result_signature": "SHA-256 of ordered Athena result rows"
+  },
+  "validity_gates": {
+    "stable_signature_per_strategy": "PASS",
+    "full_scan_csv_parquet_reconciliation": "PASS",
+    "year_2023_csv_partitioned_parquet_reconciliation": "PASS",
+    "parquet_full_scans_less_than_csv_full": "PASS",
+    "partitioned_2023_scans_less_than_parquet_full": "PASS"
+  },
+  "verified_results": {
+    "csv_to_parquet_full_scan_reduction_percent": 88.21,
+    "parquet_full_retained_scan_percent_of_csv": 11.79,
+    "parquet_full_to_partition_pruned_2023_reduction_percent": 95.55,
+    "partition_pruned_2023_retained_scan_percent_of_parquet_full": 4.45,
+    "transaction_partitions": 24,
+    "market_data_partitions": 24,
+    "result_reconciliation": "PASS"
+  },
+  "interpretation": {
+    "direct_format_claim": "The 88.21% reduction compares semantically equivalent full-history aggregation queries and supports a direct CSV-to-Parquet scan-volume claim.",
+    "workload_claim": "The 95.55% reduction compares full-history Parquet with a partition-pruned 2023 workload. It demonstrates workload-level reduction but does not isolate partitioning from the narrower date scope."
+  },
+  "monitoring": {
+    "event_rules_verified": 3,
+    "cloudwatch_alarms_verified": 3,
+    "failure_log_group": "/aws/events/zipco-financial-platform/failures",
+    "failure_log_retention_days": 30
+  },
+  "evidence": {
+    "run_prefix": "s3://zipco-financial-platform-825999268272-us-east-2/performance/evidence/run_id=20260813T224904Z-cloudshell/",
+    "benchmark_json": "zipco_athena_performance_benchmark.json",
+    "benchmark_csv": "zipco_athena_performance_benchmark.csv",
+    "deployment_verification": "zipco_observability_deployment_verification.json"
+  }
+}
+

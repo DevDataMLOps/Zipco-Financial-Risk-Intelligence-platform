@@ -1,0 +1,92 @@
+{
+  "project": "zipco-financial-risk-platform",
+  "phase": "dataset-analysis-architecture-s3",
+  "deployment_status": "DEPLOYED_AND_VERIFIED",
+  "account_id": "825999268272",
+  "region": "us-east-2",
+  "bucket": "zipco-financial-platform-825999268272-us-east-2",
+  "security_controls": {
+    "block_public_access": {
+      "BlockPublicAcls": true,
+      "IgnorePublicAcls": true,
+      "BlockPublicPolicy": true,
+      "RestrictPublicBuckets": true
+    },
+    "object_ownership": "BucketOwnerEnforced",
+    "versioning": "Enabled",
+    "default_encryption": "AES256",
+    "transport_policy": "Deny s3:* when aws:SecureTransport is false",
+    "data_classification_tag": "Confidential-Financial"
+  },
+  "lifecycle_rules": [
+    {
+      "id": "abort-incomplete-multipart-uploads",
+      "scope": "all prefixes",
+      "action": "abort after 7 days"
+    },
+    {
+      "id": "raw-data-archive",
+      "scope": "raw/",
+      "actions": [
+        "transition current and noncurrent objects to STANDARD_IA after 30 days",
+        "transition current and noncurrent objects to GLACIER_IR after 90 days",
+        "expire noncurrent versions after 365 days"
+      ]
+    },
+    {
+      "id": "quarantine-retention",
+      "scope": "quarantine/",
+      "actions": [
+        "expire current objects after 365 days",
+        "expire noncurrent versions after 90 days"
+      ]
+    },
+    {
+      "id": "athena-results-retention",
+      "scope": "athena-results/",
+      "actions": [
+        "expire current objects after 30 days",
+        "expire noncurrent versions after 30 days"
+      ]
+    },
+    {
+      "id": "processed-noncurrent-retention",
+      "scope": "objects tagged retention=processed",
+      "action": "expire noncurrent versions after 90 days"
+    }
+  ],
+  "initial_prefixes": [
+    "raw/zipco_bank_flat/",
+    "validated/zipco_bank_flat/",
+    "curated/customers/",
+    "curated/accounts/",
+    "curated/transactions/",
+    "curated/transaction_categories/",
+    "curated/categorized_transactions/",
+    "curated/market_data/",
+    "analytics/customer_risk/",
+    "analytics/transaction_risk/",
+    "analytics/portfolio_metrics/",
+    "quarantine/schema_errors/",
+    "quarantine/duplicate_records/",
+    "quarantine/business_rule_errors/",
+    "metadata/contracts/",
+    "metadata/data_dictionary/",
+    "athena-results/"
+  ],
+  "verification_scope": [
+    "bucket region",
+    "public access block",
+    "bucket policy public status",
+    "object ownership",
+    "versioning",
+    "default encryption",
+    "lifecycle rule identifiers",
+    "prefix markers",
+    "remote object sizes",
+    "SHA-256 object metadata",
+    "server-side encryption",
+    "object version identifiers"
+  ],
+  "source_of_truth": "work/deploy_zipco_s3.py and AWS CloudShell DEPLOYED_AND_VERIFIED output"
+}

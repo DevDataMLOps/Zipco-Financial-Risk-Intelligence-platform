@@ -1,0 +1,107 @@
+contract_version: "2.0.0-curated"
+contract_status: "deployed_and_verified"
+dataset: "zipco_relational_v2"
+classification: "synthetic_financial_data"
+aws:
+  account_id: "825999268272"
+  region: "us-east-2"
+  bucket: "zipco-financial-platform-825999268272-us-east-2"
+  glue_job: "zipco-relational-v2-validation-transform"
+  glue_database: "zipco_financial_risk"
+  glue_crawler: "zipco-relational-v2-curated-crawler"
+storage:
+  source_prefix: "validated/relational_v2/"
+  curated_prefix: "curated/relational_v2/"
+  quarantine_prefix: "quarantine/relational_v2/run_id={pipeline_run_id}/"
+  quality_summary: "quality/relational_v2/run_id={pipeline_run_id}/summary.json"
+  quality_latest: "quality/relational_v2/latest.json"
+  format: "Apache Parquet"
+  compression: "Snappy"
+  server_side_encryption: "AES256"
+publication_gate:
+  maximum_overall_reject_rate: 0.01
+  require_exact_source_row_counts: true
+  require_every_valid_transaction_has_category: true
+  require_every_valid_account_has_transaction: true
+  on_failure: "write quality evidence and block curated publication"
+quarantine_record:
+  fields:
+    dataset: "STRING NOT NULL"
+    original_record: "JSON STRING NOT NULL"
+    error_codes: "STRING NOT NULL"
+    source_file: "STRING NOT NULL"
+    pipeline_run_id: "STRING NOT NULL"
+    processed_at: "TIMESTAMP NOT NULL"
+tables:
+  zipco_v2_customers:
+    location: "curated/relational_v2/customers/"
+    expected_rows: 100000
+    primary_key: [CustomerID]
+    alternate_keys: [[EmailAddress], [PhoneNumber]]
+    fields:
+      CustomerID: "BIGINT NOT NULL"
+      CustomerName: "STRING NOT NULL"
+      EmailAddress: "STRING NOT NULL"
+      PhoneNumber: "STRING NOT NULL"
+  zipco_v2_accounts:
+    location: "curated/relational_v2/accounts/"
+    expected_rows: 150000
+    primary_key: [AccountID]
+    foreign_keys: ["CustomerID -> zipco_v2_customers.CustomerID"]
+    fields:
+      AccountID: "BIGINT NOT NULL"
+      CustomerID: "BIGINT NOT NULL"
+      Balance: "DECIMAL(18,2) NOT NULL CHECK (Balance >= 0)"
+  zipco_v2_transactions:
+    location: "curated/relational_v2/transactions/"
+    expected_rows: 1000000
+    primary_key: [TransactionID]
+    foreign_keys: ["AccountID -> zipco_v2_accounts.AccountID"]
+    partitioning: [TransactionYear]
+    fields:
+      TransactionID: "BIGINT NOT NULL"
+      AccountID: "BIGINT NOT NULL"
+      TransactionDate: "DATE NOT NULL"
+      TransactionType: "STRING NOT NULL ENUM(Deposit,Withdrawal,Transfer)"
+      Amount: "DECIMAL(18,2) NOT NULL CHECK (Amount > 0)"
+      TransactionYear: "INT NOT NULL PARTITION"
+  zipco_v2_transaction_categories:
+    location: "curated/relational_v2/transaction_categories/"
+    expected_rows: 10
+    primary_key: [CategoryID]
+    alternate_keys: [[CategoryName]]
+    fields:
+      CategoryID: "BIGINT NOT NULL"
+      CategoryName: "STRING NOT NULL"
+  zipco_v2_categorized_transactions:
+    location: "curated/relational_v2/categorized_transactions/"
+    expected_rows: 1000000
+    primary_key: [TransactionID, CategoryID]
+    foreign_keys:
+      - "TransactionID -> zipco_v2_transactions.TransactionID"
+      - "CategoryID -> zipco_v2_transaction_categories.CategoryID"
+    cardinality: "exactly one category per transaction"
+    fields:
+      TransactionID: "BIGINT NOT NULL"
+      CategoryID: "BIGINT NOT NULL"
+      TransactionDescription: "STRING NOT NULL"
+  zipco_v2_market_data:
+    location: "curated/relational_v2/market_data/"
+    expected_rows: 87140
+    primary_key: [MarketDataID]
+    alternate_keys: [[StockSymbol, Timestamp]]
+    partitioning: [MarketYear]
+    relationship_note: "Standalone market reference series; the supplied dictionary defines no transaction join key."
+    fields:
+      MarketDataID: "BIGINT NOT NULL"
+      StockSymbol: "STRING NOT NULL"
+      Price: "DECIMAL(18,2) NOT NULL CHECK (Price > 0)"
+      Timestamp: "TIMESTAMP NOT NULL"
+      MarketYear: "INT NOT NULL PARTITION"
+verified_run:
+  status: "DEPLOYED_RUN_AND_VERIFIED"
+  quality_status: "PASS"
+  rejected_records: 0
+  crawler_status: "SUCCEEDED"
+  catalog_table_count: 6
+

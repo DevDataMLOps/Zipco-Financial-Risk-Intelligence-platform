@@ -1,0 +1,100 @@
+{
+  "contract_version": "1.0.0",
+  "model_name": "ZIPCO Explainable Financial Activity Risk Engine",
+  "model_version": "1.0.0",
+  "status": "READY_FOR_AWS_EXECUTION",
+  "model_type": "deterministic_rules",
+  "dataset": "ZIPCO Relational Dataset v2",
+  "dataset_version": "2.0.0",
+  "classification": "synthetic_financial_data",
+  "account_id": "825999268272",
+  "region": "us-east-2",
+  "source_database": "zipco_financial_risk",
+  "baseline_analytics_database": "zipco_financial_analytics",
+  "risk_database": "zipco_financial_risk_engine",
+  "workgroup": "zipco-risk-analytics",
+  "purpose": "Explainable portfolio monitoring and analyst queue prioritization for a synthetic demonstration dataset.",
+  "prohibited_uses": [
+    "fraud determination",
+    "anti-money-laundering disposition",
+    "credit underwriting",
+    "adverse action",
+    "customer eligibility decisions",
+    "production use without independent validation and governance approval"
+  ],
+  "feature_policy": {
+    "scoring_features": [
+      "transaction amount",
+      "transaction type",
+      "transaction category",
+      "account balance exposure",
+      "account-relative amount deviation",
+      "transaction-type/category cohort percentile",
+      "aggregated account activity",
+      "aggregated customer portfolio activity"
+    ],
+    "excluded_from_scoring": [
+      "customer name",
+      "email address",
+      "phone number",
+      "market data because the data dictionary defines no transaction relationship"
+    ]
+  },
+  "transaction_model": {
+    "components": [
+      {"code": "BALANCE_EXPOSURE", "points": 20, "condition": "Withdrawal or transfer amount is greater than or equal to account balance"},
+      {"code": "HIGH_VALUE", "points": 15, "condition": "Amount is at least 9000.00"},
+      {"code": "COHORT_P95", "points": 15, "condition": "Amount is at or above the approximate 95th percentile for its transaction-type/category cohort"},
+      {"code": "EXTERNAL_TRANSFER", "points": 25, "condition": "Transaction is a transfer categorized as External Transfer"},
+      {"code": "ACCOUNT_AMOUNT_OUTLIER", "points": 15, "condition": "Amount is at least two population standard deviations above the account mean"},
+      {"code": "TRANSFER_ACTIVITY", "points": 10, "condition": "Transaction type is Transfer"}
+    ],
+    "score_cap": 100
+  },
+  "account_model": {
+    "components": [
+      {"code": "MAX_TRANSACTION_RISK", "maximum_points": 50, "calculation": "50 percent of maximum transaction risk score"},
+      {"code": "RISKY_TRANSACTION_RATE", "maximum_points": 15, "thresholds": {"10_percent": 8, "25_percent": 15}},
+      {"code": "OUTGOING_BALANCE_EXPOSURE", "maximum_points": 15, "thresholds": {"2x": 5, "5x": 10, "10x": 15}},
+      {"code": "REPEAT_HIGH_VALUE", "maximum_points": 10, "thresholds": {"1": 5, "3": 10}},
+      {"code": "REPEAT_EXTERNAL_TRANSFER", "maximum_points": 10, "thresholds": {"1": 5, "3": 10}}
+    ],
+    "score_cap": 100
+  },
+  "customer_model": {
+    "components": [
+      {"code": "MAX_ACCOUNT_RISK", "maximum_points": 60, "calculation": "60 percent of maximum account risk score"},
+      {"code": "MULTIPLE_ELEVATED_ACCOUNTS", "maximum_points": 15, "thresholds": {"1": 8, "2": 15}},
+      {"code": "REPEATED_RISKY_TRANSACTIONS", "maximum_points": 15, "thresholds": {"1": 8, "5": 15}},
+      {"code": "PORTFOLIO_OUTGOING_EXPOSURE", "maximum_points": 10, "thresholds": {"2x": 3, "5x": 6, "10x": 10}}
+    ],
+    "score_cap": 100
+  },
+  "risk_bands": [
+    {"band": "LOW", "minimum": 0, "maximum": 29},
+    {"band": "MEDIUM", "minimum": 30, "maximum": 49},
+    {"band": "HIGH", "minimum": 50, "maximum": 69},
+    {"band": "CRITICAL", "minimum": 70, "maximum": 100}
+  ],
+  "calibration": {
+    "method": "Full local relational-v2 dataset calibration before AWS deployment",
+    "transaction_bands": {"LOW": 713799, "MEDIUM": 189526, "HIGH": 82701, "CRITICAL": 13974},
+    "account_bands": {"LOW": 57481, "MEDIUM": 36441, "HIGH": 46732, "CRITICAL": 9346},
+    "customer_bands": {"LOW": 39426, "MEDIUM": 12548, "HIGH": 41813, "CRITICAL": 6213},
+    "note": "Athena uses approx_percentile for cohort thresholds, so deployed counts can vary slightly from local exact-percentile calibration."
+  },
+  "publication_gate": {
+    "views": 6,
+    "validation_rules": 10,
+    "analytics_queries": 6,
+    "saved_queries": 6,
+    "requirements": [
+      "all source and scored populations reconcile",
+      "all scores are integers from 0 through 100",
+      "all component sums reconcile to scores",
+      "all non-zero scores have reason codes",
+      "all four risk bands are populated at transaction, account, and customer levels",
+      "all financial totals reconcile to the source layer"
+    ]
+  }
+}

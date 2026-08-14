@@ -1,0 +1,108 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Governed Amazon Athena analytics layer for ZIPCO Relational Dataset v2.",
+  "Parameters": {
+    "BucketName": {
+      "Type": "String",
+      "Default": "zipco-financial-platform-825999268272-us-east-2"
+    },
+    "Environment": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": ["dev", "test", "prod"]
+    }
+  },
+  "Resources": {
+    "ZipcoAnalyticsDatabase": {
+      "Type": "AWS::Glue::Database",
+      "Properties": {
+        "CatalogId": {"Ref": "AWS::AccountId"},
+        "DatabaseInput": {
+          "Name": "zipco_financial_analytics",
+          "Description": "Reusable Athena views over the governed ZIPCO v2 curated tables.",
+          "Parameters": {
+            "dataset_version": "2.0.0",
+            "source_database": "zipco_financial_risk",
+            "managed_by": "CloudFormation"
+          }
+        }
+      }
+    },
+    "ZipcoAthenaWorkGroup": {
+      "Type": "AWS::Athena::WorkGroup",
+      "Properties": {
+        "Name": "zipco-risk-analytics",
+        "Description": "Governed Athena SQL workgroup for ZIPCO risk analytics and validation.",
+        "State": "ENABLED",
+        "RecursiveDeleteOption": true,
+        "WorkGroupConfiguration": {
+          "BytesScannedCutoffPerQuery": 524288000,
+          "EnforceWorkGroupConfiguration": true,
+          "PublishCloudWatchMetricsEnabled": true,
+          "RequesterPaysEnabled": false,
+          "EngineVersion": {
+            "SelectedEngineVersion": "Athena engine version 3"
+          },
+          "ResultConfiguration": {
+            "OutputLocation": {"Fn::Sub": "s3://${BucketName}/athena/results/"},
+            "ExpectedBucketOwner": {"Ref": "AWS::AccountId"},
+            "EncryptionConfiguration": {
+              "EncryptionOption": "SSE_S3"
+            }
+          }
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "DatasetVersion", "Value": "2.0.0"},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ExecutiveSnapshotQuery": {
+      "Type": "AWS::Athena::NamedQuery",
+      "Properties": {
+        "Database": {"Ref": "ZipcoAnalyticsDatabase"},
+        "WorkGroup": {"Ref": "ZipcoAthenaWorkGroup"},
+        "Name": "ZIPCO 01 - Executive transaction snapshot",
+        "Description": "Portfolio transaction volume, value, reach, and active date range.",
+        "QueryString": "SELECT count(*) AS transaction_count, round(sum(amount), 2) AS transaction_value, round(avg(amount), 2) AS average_transaction, count(DISTINCT accountid) AS active_accounts, count(DISTINCT customerid) AS active_customers, min(transactiondate) AS first_transaction_date, max(transactiondate) AS last_transaction_date FROM v_transaction_enriched"
+      }
+    },
+    "RiskCategoryProfileQuery": {
+      "Type": "AWS::Athena::NamedQuery",
+      "Properties": {
+        "Database": {"Ref": "ZipcoAnalyticsDatabase"},
+        "WorkGroup": {"Ref": "ZipcoAthenaWorkGroup"},
+        "Name": "ZIPCO 02 - Risk profile by transaction category",
+        "Description": "Transaction totals and high-value concentration by type and category.",
+        "QueryString": "SELECT transactiontype, categoryname, count(*) AS transaction_count, round(sum(amount), 2) AS transaction_value, round(avg(amount), 2) AS average_amount, count_if(amount >= DECIMAL '9000.00') AS high_value_count, round(100.0 * count_if(amount >= DECIMAL '9000.00') / count(*), 2) AS high_value_pct FROM v_transaction_enriched GROUP BY transactiontype, categoryname ORDER BY transaction_value DESC"
+      }
+    },
+    "CustomerExposureQuery": {
+      "Type": "AWS::Athena::NamedQuery",
+      "Properties": {
+        "Database": {"Ref": "ZipcoAnalyticsDatabase"},
+        "WorkGroup": {"Ref": "ZipcoAthenaWorkGroup"},
+        "Name": "ZIPCO 03 - Highest customer exposure",
+        "Description": "Customers with the largest balance and transaction exposure.",
+        "QueryString": "SELECT customerid, customername, account_count, total_balance, transaction_count, transaction_value, high_value_transaction_count, first_transaction_date, last_transaction_date FROM v_customer_portfolio ORDER BY transaction_value DESC, total_balance DESC LIMIT 25"
+      }
+    },
+    "AnnualTrendQuery": {
+      "Type": "AWS::Athena::NamedQuery",
+      "Properties": {
+        "Database": {"Ref": "ZipcoAnalyticsDatabase"},
+        "WorkGroup": {"Ref": "ZipcoAthenaWorkGroup"},
+        "Name": "ZIPCO 04 - Annual activity trend",
+        "Description": "Annual transaction values, active customers, and high-value activity.",
+        "QueryString": "SELECT transaction_year, sum(transaction_count) AS transaction_count, round(sum(transaction_value), 2) AS transaction_value, max(active_customers) AS peak_monthly_active_customers, sum(high_value_count) AS high_value_count FROM v_monthly_risk_metrics GROUP BY transaction_year ORDER BY transaction_year"
+      }
+    }
+  },
+  "Outputs": {
+    "AthenaWorkGroup": {"Value": {"Ref": "ZipcoAthenaWorkGroup"}},
+    "AnalyticsDatabase": {"Value": {"Ref": "ZipcoAnalyticsDatabase"}},
+    "QueryResultsLocation": {"Value": {"Fn::Sub": "s3://${BucketName}/athena/results/"}}
+  }
+}

@@ -7,6 +7,15 @@
 - Treat the repository's AWS account ID and resource names as non-secret infrastructure metadata.
 - Keep large source and generated datasets in governed S3 prefixes, not Git.
 
+## AWS operating model
+
+- Use the Phase 5 MFA-gated persona roles for routine work: data engineer, risk analyst, data steward, or security auditor.
+- Treat root-user CloudShell access as a bootstrap exception. Remove root access keys, enable root MFA, and do not use root for normal operations.
+- New data, analytics results, Glue artifacts, catalog metadata, and audit records use the ZIPCO customer-managed KMS key after Phase 5 deployment.
+- Changing S3 default encryption does not re-encrypt existing object versions. Historical objects require a separately reviewed migration plan.
+- Keep CloudTrail, AWS Config, IAM Access Analyzer, and security alarms enabled; investigate findings rather than deleting evidence.
+- Do not attach an alarm notification target without confirming the destination and its data-handling approval.
+
 ## Reporting
 
 If you find an exposed secret, revoke or rotate it immediately before removing it from Git history. Do not open a public issue containing the credential.
@@ -15,3 +24,4 @@ If you find an exposed secret, revoke or rotate it immediately before removing i
 
 The risk engine is a synthetic analyst-prioritization demonstration. Do not use it for real fraud, AML, credit, eligibility, underwriting, or adverse-action decisions.
 
+The detailed control design and deployment boundary are in [`phases/05-security-governance`](phases/05-security-governance/README.md).

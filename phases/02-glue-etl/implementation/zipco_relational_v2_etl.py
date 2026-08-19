@@ -168,7 +168,6 @@ def put_json(key: str, payload: dict) -> None:
         Key=key,
         Body=json.dumps(payload, indent=2, default=str).encode("utf-8"),
         ContentType="application/json",
-        ServerSideEncryption="AES256",
         Metadata={"pipeline-run-id": RUN_ID, "dataset-version": "2.0.0"},
     )
 

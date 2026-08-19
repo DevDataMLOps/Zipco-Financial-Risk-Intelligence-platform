@@ -1,0 +1,532 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Isolated IAM and AWS Lake Formation LF-TBAC demonstration for the ZIPCO portfolio.",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": ["dev", "test", "prod"]
+    },
+    "DataBucketName": {"Type": "String"},
+    "SecurityKeyArn": {"Type": "String"},
+    "AthenaWorkGroupName": {"Type": "String", "Default": "zipco-risk-analytics"},
+    "DeploymentRoleArn": {"Type": "String"},
+    "ValidationRoleArn": {"Type": "String"},
+    "ValidatorCodeBucket": {"Type": "String"},
+    "ValidatorCodeKey": {"Type": "String"},
+    "DataEngineerRoleName": {"Type": "String", "Default": "zipco-data-engineer-dev"},
+    "RiskAnalystRoleName": {"Type": "String", "Default": "zipco-risk-analyst-dev"},
+    "DataStewardRoleName": {"Type": "String", "Default": "zipco-data-steward-dev"},
+    "SecurityAuditorRoleName": {"Type": "String", "Default": "zipco-security-auditor-dev"},
+    "DemoDatabaseName": {"Type": "String", "Default": "zipco_lf_governance_demo"},
+    "DemoTableName": {"Type": "String", "Default": "risk_band_summary"}
+  },
+  "Resources": {
+    "ZipcoLakeFormationDataAccessRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-lf-data-access-${Environment}"},
+        "Description": "Runtime credential-vending role for the isolated ZIPCO Lake Formation location.",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{"Effect": "Allow", "Principal": {"Service": "lakeformation.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+        },
+        "Policies": [
+          {
+            "PolicyName": "zipco-lf-registered-location-access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/governance-demo/*"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:GetBucketLocation", "s3:ListBucket"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"},
+                  "Condition": {"StringLike": {"s3:prefix": ["governance-demo", "governance-demo/*"]}}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["kms:Decrypt", "kms:Encrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"],
+                  "Resource": {"Ref": "SecurityKeyArn"}
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Purpose", "Value": "LakeFormationDataAccess"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoAuthorizedReaderProbeRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-lf-authorized-reader-probe-${Environment}"},
+        "Description": "Automation-only role used to prove an LF-authorized Athena query.",
+        "MaxSessionDuration": 3600,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{"Effect": "Allow", "Principal": {"AWS": {"Ref": "ValidationRoleArn"}}, "Action": "sts:AssumeRole"}]
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Purpose", "Value": "AutomatedPositiveAccessProbe"},
+          {"Key": "HumanAccess", "Value": "false"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}}
+        ]
+      }
+    },
+    "ZipcoMetadataOnlyProbeRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-lf-metadata-only-probe-${Environment}"},
+        "Description": "Automation-only role used to prove an LF SELECT denial.",
+        "MaxSessionDuration": 3600,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{"Effect": "Allow", "Principal": {"AWS": {"Ref": "ValidationRoleArn"}}, "Action": "sts:AssumeRole"}]
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Purpose", "Value": "AutomatedNegativeAccessProbe"},
+          {"Key": "HumanAccess", "Value": "false"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}}
+        ]
+      }
+    },
+    "ZipcoProbeRolePolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "zipco-lf-query-probe",
+        "Roles": [
+          {"Ref": "ZipcoAuthorizedReaderProbeRole"},
+          {"Ref": "ZipcoMetadataOnlyProbeRole"}
+        ],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {"Effect": "Allow", "Action": "lakeformation:GetDataAccess", "Resource": "*"},
+            {
+              "Effect": "Allow",
+              "Action": ["glue:GetDatabase", "glue:GetDatabases", "glue:GetTable", "glue:GetTables", "glue:GetPartitions"],
+              "Resource": [
+                {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:catalog"},
+                {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:database/${DemoDatabaseName}"},
+                {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:table/${DemoDatabaseName}/*"}
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": ["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults", "athena:StopQueryExecution", "athena:GetDataCatalog", "athena:GetWorkGroup"],
+              "Resource": {"Fn::Sub": "arn:${AWS::Partition}:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${AthenaWorkGroupName}"}
+            },
+            {
+              "Effect": "Allow",
+              "Action": ["s3:GetBucketLocation", "s3:ListBucketMultipartUploads"],
+              "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"}
+            },
+            {
+              "Effect": "Allow",
+              "Action": "s3:ListBucket",
+              "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"},
+              "Condition": {"StringLike": {"s3:prefix": ["athena/results", "athena/results/*"]}}
+            },
+            {
+              "Effect": "Allow",
+              "Action": ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+              "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/athena/results/*"}
+            },
+            {
+              "Effect": "Allow",
+              "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+              "Resource": {"Ref": "SecurityKeyArn"}
+            }
+          ]
+        }
+      }
+    },
+    "ZipcoLakeFormationQueryPersonaPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "zipco-lf-governance-demo-query",
+        "Roles": [{"Ref": "DataEngineerRoleName"}, {"Ref": "RiskAnalystRoleName"}],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {"Effect": "Allow", "Action": "lakeformation:GetDataAccess", "Resource": "*"},
+            {
+              "Effect": "Allow",
+              "Action": ["glue:GetDatabase", "glue:GetDatabases", "glue:GetTable", "glue:GetTables", "glue:GetPartitions"],
+              "Resource": [
+                {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:catalog"},
+                {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:database/${DemoDatabaseName}"},
+                {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:table/${DemoDatabaseName}/*"}
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "ZipcoLakeFormationStewardPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "zipco-lf-governance-demo-steward",
+        "Roles": [{"Ref": "DataStewardRoleName"}],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "lakeformation:GetDataLakeSettings",
+                "lakeformation:ListLFTags",
+                "lakeformation:GetLFTag",
+                "lakeformation:GetResourceLFTags",
+                "lakeformation:SearchDatabasesByLFTags",
+                "lakeformation:SearchTablesByLFTags",
+                "lakeformation:ListPermissions",
+                "lakeformation:AddLFTagsToResource",
+                "lakeformation:RemoveLFTagsFromResource"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": ["glue:GetDatabase", "glue:GetDatabases", "glue:GetTable", "glue:GetTables", "glue:GetPartitions", "glue:UpdateTable"],
+              "Resource": [
+                {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:catalog"},
+                {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:database/${DemoDatabaseName}"},
+                {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:table/${DemoDatabaseName}/*"}
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "ZipcoLakeFormationAuditorPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "zipco-lf-governance-demo-auditor",
+        "Roles": [{"Ref": "SecurityAuditorRoleName"}],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": ["lakeformation:GetDataLakeSettings", "lakeformation:ListLFTags", "lakeformation:GetLFTag", "lakeformation:GetResourceLFTags", "lakeformation:ListPermissions", "lakeformation:ListResources", "lakeformation:ListLakeFormationOptIns"],
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": ["glue:GetDatabase", "glue:GetDatabases", "glue:GetTable", "glue:GetTables", "glue:GetPartitions"],
+              "Resource": [
+                {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:catalog"},
+                {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:database/${DemoDatabaseName}"},
+                {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:table/${DemoDatabaseName}/*"}
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "ZipcoLakeFormationValidator": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": {"Fn::Sub": "zipco-lf-validator-${Environment}"},
+        "Description": "Runs positive and negative Lake Formation access probes and writes versioned evidence.",
+        "Runtime": "python3.12",
+        "Handler": "lake_formation_validator.handler",
+        "Role": {"Ref": "ValidationRoleArn"},
+        "Timeout": 300,
+        "MemorySize": 256,
+        "Code": {"S3Bucket": {"Ref": "ValidatorCodeBucket"}, "S3Key": {"Ref": "ValidatorCodeKey"}},
+        "Environment": {
+          "Variables": {
+            "ACCOUNT_ID": {"Ref": "AWS::AccountId"},
+            "DATA_BUCKET": {"Ref": "DataBucketName"},
+            "DEMO_DATABASE": {"Ref": "DemoDatabaseName"},
+            "DEMO_TABLE": {"Ref": "DemoTableName"},
+            "ATHENA_WORKGROUP": {"Ref": "AthenaWorkGroupName"},
+            "REGISTERED_LOCATION_ARN": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/governance-demo"},
+            "DATA_ACCESS_ROLE_ARN": {"Fn::GetAtt": ["ZipcoLakeFormationDataAccessRole", "Arn"]},
+            "SECURITY_KEY_ARN": {"Ref": "SecurityKeyArn"}
+          }
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Purpose", "Value": "LakeFormationAccessValidation"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoLakeFormationLocation": {
+      "Type": "AWS::LakeFormation::Resource",
+      "DependsOn": "ZipcoLakeFormationDataAccessRole",
+      "Properties": {
+        "ResourceArn": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/governance-demo"},
+        "RoleArn": {"Fn::GetAtt": ["ZipcoLakeFormationDataAccessRole", "Arn"]},
+        "UseServiceLinkedRole": false,
+        "HybridAccessEnabled": true
+      }
+    },
+    "ZipcoDeploymentDataLocationPermission": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoLakeFormationLocation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Ref": "DeploymentRoleArn"}},
+        "Resource": {
+          "DataLocation": {
+            "CatalogId": {"Ref": "AWS::AccountId"},
+            "ResourceArn": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/governance-demo"}
+          }
+        },
+        "Permissions": ["DATA_LOCATION_ACCESS"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "ZipcoDemoDatabase": {
+      "Type": "AWS::Glue::Database",
+      "DependsOn": "ZipcoDeploymentDataLocationPermission",
+      "Properties": {
+        "CatalogId": {"Ref": "AWS::AccountId"},
+        "DatabaseInput": {
+          "Name": {"Ref": "DemoDatabaseName"},
+          "Description": "Isolated hybrid-access Lake Formation portfolio demonstration; no production data.",
+          "LocationUri": {"Fn::Sub": "s3://${DataBucketName}/governance-demo/"},
+          "CreateTableDefaultPermissions": [
+            {
+              "Principal": {"DataLakePrincipalIdentifier": "IAM_ALLOWED_PRINCIPALS"},
+              "Permissions": ["ALL"]
+            }
+          ],
+          "Parameters": {
+            "project": "zipco-financial-risk-platform",
+            "purpose": "lake-formation-portfolio-demo",
+            "data_class": "synthetic-control-fixture"
+          }
+        }
+      }
+    },
+    "ZipcoDemoTable": {
+      "Type": "AWS::Glue::Table",
+      "DependsOn": ["ZipcoDemoDatabase", "ZipcoLakeFormationLocation"],
+      "Properties": {
+        "CatalogId": {"Ref": "AWS::AccountId"},
+        "DatabaseName": {"Ref": "DemoDatabaseName"},
+        "TableInput": {
+          "Name": {"Ref": "DemoTableName"},
+          "Description": "Four-row deterministic access-control fixture; not a business result.",
+          "TableType": "EXTERNAL_TABLE",
+          "Parameters": {
+            "classification": "csv",
+            "skip.header.line.count": "1",
+            "data_class": "synthetic-control-fixture",
+            "portfolio_use": "access-control-validation"
+          },
+          "StorageDescriptor": {
+            "Columns": [
+              {"Name": "risk_band", "Type": "string"},
+              {"Name": "account_count", "Type": "bigint"},
+              {"Name": "transaction_count", "Type": "bigint"},
+              {"Name": "review_required", "Type": "boolean"},
+              {"Name": "as_of_date", "Type": "date"}
+            ],
+            "Location": {"Fn::Sub": "s3://${DataBucketName}/governance-demo/risk_band_summary/"},
+            "InputFormat": "org.apache.hadoop.mapred.TextInputFormat",
+            "OutputFormat": "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
+            "SerdeInfo": {
+              "SerializationLibrary": "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe",
+              "Parameters": {"field.delim": ",", "serialization.format": ","}
+            },
+            "StoredAsSubDirectories": false
+          }
+        }
+      }
+    },
+    "ZipcoDomainTag": {
+      "Type": "AWS::LakeFormation::Tag",
+      "Properties": {"CatalogId": {"Ref": "AWS::AccountId"}, "TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}
+    },
+    "ZipcoSensitivityTag": {
+      "Type": "AWS::LakeFormation::Tag",
+      "Properties": {"CatalogId": {"Ref": "AWS::AccountId"}, "TagKey": "zipco-sensitivity", "TagValues": ["internal"]}
+    },
+    "ZipcoDatabaseTagAssociation": {
+      "Type": "AWS::LakeFormation::TagAssociation",
+      "DependsOn": ["ZipcoDemoDatabase", "ZipcoDomainTag"],
+      "Properties": {
+        "Resource": {"Database": {"CatalogId": {"Ref": "AWS::AccountId"}, "Name": {"Ref": "DemoDatabaseName"}}},
+        "LFTags": [{"CatalogId": {"Ref": "AWS::AccountId"}, "TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}]
+      }
+    },
+    "ZipcoTableTagAssociation": {
+      "Type": "AWS::LakeFormation::TagAssociation",
+      "DependsOn": ["ZipcoDemoTable", "ZipcoDomainTag", "ZipcoSensitivityTag"],
+      "Properties": {
+        "Resource": {"Table": {"CatalogId": {"Ref": "AWS::AccountId"}, "DatabaseName": {"Ref": "DemoDatabaseName"}, "Name": {"Ref": "DemoTableName"}}},
+        "LFTags": [
+          {"CatalogId": {"Ref": "AWS::AccountId"}, "TagKey": "zipco-domain", "TagValues": ["risk-analytics"]},
+          {"CatalogId": {"Ref": "AWS::AccountId"}, "TagKey": "zipco-sensitivity", "TagValues": ["internal"]}
+        ]
+      }
+    },
+    "DataEngineerDatabaseGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoDatabaseTagAssociation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DataEngineerRoleName}"}},
+        "Resource": {"LFTagPolicy": {"CatalogId": {"Ref": "AWS::AccountId"}, "ResourceType": "DATABASE", "Expression": [{"TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}]}},
+        "Permissions": ["DESCRIBE"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "DataEngineerTableGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoTableTagAssociation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DataEngineerRoleName}"}},
+        "Resource": {"LFTagPolicy": {"CatalogId": {"Ref": "AWS::AccountId"}, "ResourceType": "TABLE", "Expression": [{"TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}, {"TagKey": "zipco-sensitivity", "TagValues": ["internal"]}]}},
+        "Permissions": ["SELECT", "DESCRIBE", "ALTER"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "RiskAnalystDatabaseGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoDatabaseTagAssociation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${RiskAnalystRoleName}"}},
+        "Resource": {"LFTagPolicy": {"CatalogId": {"Ref": "AWS::AccountId"}, "ResourceType": "DATABASE", "Expression": [{"TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}]}},
+        "Permissions": ["DESCRIBE"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "RiskAnalystTableGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoTableTagAssociation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${RiskAnalystRoleName}"}},
+        "Resource": {"LFTagPolicy": {"CatalogId": {"Ref": "AWS::AccountId"}, "ResourceType": "TABLE", "Expression": [{"TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}, {"TagKey": "zipco-sensitivity", "TagValues": ["internal"]}]}},
+        "Permissions": ["SELECT", "DESCRIBE"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "DataStewardDatabaseGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoDatabaseTagAssociation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DataStewardRoleName}"}},
+        "Resource": {"LFTagPolicy": {"CatalogId": {"Ref": "AWS::AccountId"}, "ResourceType": "DATABASE", "Expression": [{"TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}]}},
+        "Permissions": ["DESCRIBE"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "DataStewardTableGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoTableTagAssociation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DataStewardRoleName}"}},
+        "Resource": {"LFTagPolicy": {"CatalogId": {"Ref": "AWS::AccountId"}, "ResourceType": "TABLE", "Expression": [{"TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}, {"TagKey": "zipco-sensitivity", "TagValues": ["internal"]}]}},
+        "Permissions": ["DESCRIBE", "ALTER"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "DataStewardDomainTagGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoDomainTag",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DataStewardRoleName}"}},
+        "Resource": {"LFTag": {"CatalogId": {"Ref": "AWS::AccountId"}, "TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}},
+        "Permissions": ["DESCRIBE", "ASSOCIATE"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "DataStewardSensitivityTagGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoSensitivityTag",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DataStewardRoleName}"}},
+        "Resource": {"LFTag": {"CatalogId": {"Ref": "AWS::AccountId"}, "TagKey": "zipco-sensitivity", "TagValues": ["internal"]}},
+        "Permissions": ["DESCRIBE", "ASSOCIATE"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "SecurityAuditorDatabaseGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoDatabaseTagAssociation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${SecurityAuditorRoleName}"}},
+        "Resource": {"LFTagPolicy": {"CatalogId": {"Ref": "AWS::AccountId"}, "ResourceType": "DATABASE", "Expression": [{"TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}]}},
+        "Permissions": ["DESCRIBE"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "SecurityAuditorTableGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoTableTagAssociation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${SecurityAuditorRoleName}"}},
+        "Resource": {"LFTagPolicy": {"CatalogId": {"Ref": "AWS::AccountId"}, "ResourceType": "TABLE", "Expression": [{"TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}, {"TagKey": "zipco-sensitivity", "TagValues": ["internal"]}]}},
+        "Permissions": ["DESCRIBE"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "AuthorizedProbeDatabaseGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoDatabaseTagAssociation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::GetAtt": ["ZipcoAuthorizedReaderProbeRole", "Arn"]}},
+        "Resource": {"LFTagPolicy": {"CatalogId": {"Ref": "AWS::AccountId"}, "ResourceType": "DATABASE", "Expression": [{"TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}]}},
+        "Permissions": ["DESCRIBE"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "AuthorizedProbeTableGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoTableTagAssociation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::GetAtt": ["ZipcoAuthorizedReaderProbeRole", "Arn"]}},
+        "Resource": {"LFTagPolicy": {"CatalogId": {"Ref": "AWS::AccountId"}, "ResourceType": "TABLE", "Expression": [{"TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}, {"TagKey": "zipco-sensitivity", "TagValues": ["internal"]}]}},
+        "Permissions": ["SELECT", "DESCRIBE"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "DeniedProbeDatabaseGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoDatabaseTagAssociation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::GetAtt": ["ZipcoMetadataOnlyProbeRole", "Arn"]}},
+        "Resource": {"LFTagPolicy": {"CatalogId": {"Ref": "AWS::AccountId"}, "ResourceType": "DATABASE", "Expression": [{"TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}]}},
+        "Permissions": ["DESCRIBE"],
+        "PermissionsWithGrantOption": []
+      }
+    },
+    "DeniedProbeTableGrant": {
+      "Type": "AWS::LakeFormation::PrincipalPermissions",
+      "DependsOn": "ZipcoTableTagAssociation",
+      "Properties": {
+        "Principal": {"DataLakePrincipalIdentifier": {"Fn::GetAtt": ["ZipcoMetadataOnlyProbeRole", "Arn"]}},
+        "Resource": {"LFTagPolicy": {"CatalogId": {"Ref": "AWS::AccountId"}, "ResourceType": "TABLE", "Expression": [{"TagKey": "zipco-domain", "TagValues": ["risk-analytics"]}, {"TagKey": "zipco-sensitivity", "TagValues": ["internal"]}]}},
+        "Permissions": ["DESCRIBE"],
+        "PermissionsWithGrantOption": []
+      }
+    }
+  },
+  "Outputs": {
+    "DemoDatabaseName": {"Value": {"Ref": "DemoDatabaseName"}},
+    "DemoTableName": {"Value": {"Ref": "DemoTableName"}},
+    "RegisteredLocationArn": {"Value": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/governance-demo"}},
+    "DataAccessRoleArn": {"Value": {"Fn::GetAtt": ["ZipcoLakeFormationDataAccessRole", "Arn"]}},
+    "AuthorizedProbeRoleArn": {"Value": {"Fn::GetAtt": ["ZipcoAuthorizedReaderProbeRole", "Arn"]}},
+    "DeniedProbeRoleArn": {"Value": {"Fn::GetAtt": ["ZipcoMetadataOnlyProbeRole", "Arn"]}},
+    "ValidationFunctionName": {"Value": {"Ref": "ZipcoLakeFormationValidator"}},
+    "LakeFormationConsoleUrl": {"Value": {"Fn::Sub": "https://${AWS::Region}.console.aws.amazon.com/lakeformation/home?region=${AWS::Region}#permissions"}}
+  }
+}

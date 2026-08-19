@@ -1,0 +1,78 @@
+{
+  "contract_name": "ZIPCO Security and Governance Contract",
+  "contract_version": "1.0.0",
+  "platform": "ZIPCO Financial Risk Intelligence Platform",
+  "region": "us-east-2",
+  "scope": {
+    "data_bucket": "zipco-financial-platform-825999268272-us-east-2",
+    "glue_job": "zipco-relational-v2-validation-transform",
+    "glue_crawler": "zipco-relational-v2-curated-crawler",
+    "athena_workgroup": "zipco-risk-analytics",
+    "catalog_databases": [
+      "zipco_financial_risk",
+      "zipco_financial_analytics",
+      "zipco_financial_risk_engine"
+    ]
+  },
+  "control_families": {
+    "encryption": [
+      {"id": "SG-ENC-01", "control": "Customer-managed symmetric KMS key is enabled", "gate": true},
+      {"id": "SG-ENC-02", "control": "Automatic KMS key rotation is enabled", "gate": true},
+      {"id": "SG-ENC-03", "control": "Primary and audit buckets use SSE-KMS default encryption with S3 Bucket Keys", "gate": true},
+      {"id": "SG-ENC-04", "control": "Glue S3, CloudWatch Logs, and bookmark encryption use the ZIPCO KMS key", "gate": true},
+      {"id": "SG-ENC-05", "control": "Athena result encryption is enforced as SSE_KMS", "gate": true},
+      {"id": "SG-ENC-06", "control": "New Glue Data Catalog metadata uses SSE-KMS with a service role", "gate": true}
+    ],
+    "identity_and_access": [
+      {"id": "SG-IAM-01", "control": "Data engineer role is prefix- and service-scoped", "gate": true},
+      {"id": "SG-IAM-02", "control": "Risk analyst role is read/query scoped", "gate": true},
+      {"id": "SG-IAM-03", "control": "Data steward role is metadata and contract scoped", "gate": true},
+      {"id": "SG-IAM-04", "control": "Security auditor role cannot mutate data-lake resources", "gate": true},
+      {"id": "SG-IAM-05", "control": "All four human personas require MFA for role assumption", "gate": true},
+      {"id": "SG-IAM-06", "control": "Account-level IAM Access Analyzer is active", "gate": true}
+    ],
+    "audit_and_detection": [
+      {"id": "SG-AUD-01", "control": "Multi-region CloudTrail is logging management events", "gate": true},
+      {"id": "SG-AUD-02", "control": "CloudTrail log-file integrity validation is enabled", "gate": true},
+      {"id": "SG-AUD-03", "control": "CloudTrail logs are KMS encrypted and retained in a dedicated private bucket", "gate": true},
+      {"id": "SG-AUD-04", "control": "Primary-bucket S3 object events are recorded when the cost switch is enabled", "gate": false},
+      {"id": "SG-AUD-05", "control": "Root usage, denied API calls, and KMS destructive changes generate metrics and alarms", "gate": true},
+      {"id": "SG-AUD-06", "control": "Security dashboard and CloudWatch audit query are available", "gate": true}
+    ],
+    "configuration_and_data_governance": [
+      {"id": "SG-GOV-01", "control": "AWS Config recorder is active", "gate": true},
+      {"id": "SG-GOV-02", "control": "Fifteen AWS managed rules evaluate storage, trail, KMS, and identity posture", "gate": true},
+      {"id": "SG-GOV-03", "control": "Weekly S3 Inventory records encryption and object metadata", "gate": true},
+      {"id": "SG-GOV-04", "control": "Catalog databases carry ownership/classification/version tags and all tables are covered by the versioned column-level classification catalog", "gate": true},
+      {"id": "SG-GOV-05", "control": "Data classification catalog defines column-level handling classes", "gate": true},
+      {"id": "SG-GOV-06", "control": "Risk-engine use remains human-reviewed and prohibited for automated adverse decisions", "gate": true}
+    ]
+  },
+  "evidence": {
+    "status_value_after_success": "DEPLOYED_RUN_AND_VERIFIED",
+    "local_file": "zipco_security_governance_deployment_verification.json",
+    "s3_latest_key": "metadata/contracts/security-governance/zipco_security_governance_deployment_verification_latest.json",
+    "required_sections": [
+      "cloudformation",
+      "kms",
+      "s3",
+      "cloudtrail",
+      "glue",
+      "athena",
+      "catalog",
+      "iam",
+      "access_analyzer",
+      "aws_config",
+      "inventory",
+      "catalog_tags",
+      "control_results"
+    ]
+  },
+  "boundaries": {
+    "existing_s3_objects": "Changing default encryption does not re-encrypt existing object versions; migration requires a separately approved copy or S3 Batch Operations plan.",
+    "lake_formation": "This phase adds classification and role governance without revoking IAMAllowedPrincipals or changing live Lake Formation authorization.",
+    "macie": "Amazon Macie is not enabled because the dataset is synthetic and the service adds cost; enable it before processing real sensitive data.",
+    "notifications": "Alarms are deployed without external notification targets. Production promotion requires an approved SNS, PagerDuty, Slack, or ticketing destination.",
+    "risk_model": "Scores prioritize synthetic records for human review only and are not fraud, AML, credit, eligibility, or adverse-action decisions."
+  }
+}

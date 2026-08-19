@@ -10,7 +10,15 @@
       "Type": "String",
       "Default": "dev",
       "AllowedValues": ["dev", "test", "prod"]
+    },
+    "KmsKeyArn": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Optional ZIPCO customer-managed KMS key ARN. Empty preserves the SSE-S3 baseline."
     }
+  },
+  "Conditions": {
+    "UseCustomerManagedKms": {"Fn::Not": [{"Fn::Equals": [{"Ref": "KmsKeyArn"}, ""]}]}
   },
   "Resources": {
     "ZipcoAnalyticsDatabase": {
@@ -47,7 +55,11 @@
             "OutputLocation": {"Fn::Sub": "s3://${BucketName}/athena/results/"},
             "ExpectedBucketOwner": {"Ref": "AWS::AccountId"},
             "EncryptionConfiguration": {
-              "EncryptionOption": "SSE_S3"
+              "Fn::If": [
+                "UseCustomerManagedKms",
+                {"EncryptionOption": "SSE_KMS", "KmsKey": {"Ref": "KmsKeyArn"}},
+                {"EncryptionOption": "SSE_S3"}
+              ]
             }
           }
         },

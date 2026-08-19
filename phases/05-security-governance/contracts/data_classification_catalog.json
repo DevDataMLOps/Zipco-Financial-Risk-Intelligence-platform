@@ -1,0 +1,49 @@
+{
+  "catalog_version": "1.0.0",
+  "default_classification": "Confidential-Financial",
+  "classes": {
+    "Restricted-PII": {
+      "handling": "Need-to-know access; encrypted storage and transport; exclude from model features and public evidence.",
+      "columns": ["customers.Name", "customers.Email", "customers.Phone"]
+    },
+    "Confidential-Financial": {
+      "handling": "Role-scoped access; KMS encryption; audited reads and writes; no public raw-data publication.",
+      "columns": [
+        "accounts.AccountID",
+        "accounts.CustomerID",
+        "accounts.Balance",
+        "transactions.TransactionID",
+        "transactions.AccountID",
+        "transactions.Amount",
+        "transactions.TransactionDate",
+        "categorized_transactions.TransactionID",
+        "categorized_transactions.CategoryID"
+      ]
+    },
+    "Internal-Reference": {
+      "handling": "Internal analytics use; governed catalog access; publish only aggregated portfolio results.",
+      "columns": [
+        "customers.CustomerID",
+        "transaction_categories.CategoryID",
+        "transaction_categories.CategoryName",
+        "market_data.Date",
+        "market_data.MarketIndex"
+      ]
+    },
+    "Public-Portfolio": {
+      "handling": "Approved aggregated metrics, architecture, contracts, synthetic examples, and redacted screenshots only.",
+      "columns": []
+    }
+  },
+  "model_feature_policy": {
+    "allowed_classes": ["Confidential-Financial", "Internal-Reference"],
+    "prohibited_classes": ["Restricted-PII"],
+    "prohibited_columns": ["Name", "Email", "Phone"]
+  },
+  "retention": {
+    "raw": "Archive after 30/90 days according to the existing lifecycle; noncurrent versions expire after 365 days.",
+    "quarantine": "Expire after 365 days.",
+    "athena_results": "Expire after 30 days.",
+    "audit": "Default 365-day retention, configurable up to 3650 days, with Glacier transition at day 90."
+  }
+}

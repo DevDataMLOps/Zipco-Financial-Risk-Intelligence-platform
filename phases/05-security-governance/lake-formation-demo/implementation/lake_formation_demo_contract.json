@@ -1,0 +1,79 @@
+{
+  "contract_version": "1.0.0",
+  "project": "ZIPCO Financial Risk Intelligence Platform",
+  "phase": "Security and Governance",
+  "capability": "IAM and Lake Formation portfolio demonstration",
+  "deployment_status": "IMPLEMENTED_READY_FOR_AWS_VALIDATION",
+  "region": "us-east-2",
+  "scope": {
+    "database": "zipco_lf_governance_demo",
+    "table": "risk_band_summary",
+    "s3_prefix": "governance-demo/",
+    "access_mode": "HYBRID",
+    "protected_existing_databases": [
+      "zipco_financial_risk",
+      "zipco_financial_analytics",
+      "zipco_financial_risk_engine"
+    ]
+  },
+  "lf_tags": {
+    "zipco-domain": ["risk-analytics"],
+    "zipco-sensitivity": ["internal"]
+  },
+  "personas": {
+    "zipco-data-engineer-dev": {
+      "database": ["DESCRIBE"],
+      "table": ["SELECT", "DESCRIBE", "ALTER"]
+    },
+    "zipco-risk-analyst-dev": {
+      "database": ["DESCRIBE"],
+      "table": ["SELECT", "DESCRIBE"]
+    },
+    "zipco-data-steward-dev": {
+      "database": ["DESCRIBE"],
+      "table": ["DESCRIBE", "ALTER"],
+      "lf_tags": ["DESCRIBE", "ASSOCIATE"]
+    },
+    "zipco-security-auditor-dev": {
+      "database": ["DESCRIBE"],
+      "table": ["DESCRIBE"],
+      "explicitly_absent": ["SELECT", "ALTER", "INSERT", "DELETE", "DROP"]
+    }
+  },
+  "automated_access_probes": {
+    "authorized_reader": {
+      "expected_athena_state": "SUCCEEDED",
+      "lake_formation_permissions": ["SELECT", "DESCRIBE"]
+    },
+    "metadata_only_denied": {
+      "expected_athena_state": "FAILED",
+      "lake_formation_permissions": ["DESCRIBE"],
+      "explicitly_absent": ["SELECT"]
+    }
+  },
+  "mandatory_controls": [
+    {"id": "LF-01", "name": "Isolated S3 prefix"},
+    {"id": "LF-02", "name": "Custom Lake Formation data-access role"},
+    {"id": "LF-03", "name": "Customer-managed KMS encryption"},
+    {"id": "LF-04", "name": "Hybrid Lake Formation registration"},
+    {"id": "LF-05", "name": "Isolated Glue database"},
+    {"id": "LF-06", "name": "Governed external table"},
+    {"id": "LF-07", "name": "Domain LF-tag"},
+    {"id": "LF-08", "name": "Sensitivity LF-tag"},
+    {"id": "LF-09", "name": "Database LF-tag association"},
+    {"id": "LF-10", "name": "Table LF-tag association"},
+    {"id": "LF-11", "name": "Data engineer LF-TBAC grant"},
+    {"id": "LF-12", "name": "Risk analyst LF-TBAC grant"},
+    {"id": "LF-13", "name": "Data steward LF-TBAC grant"},
+    {"id": "LF-14", "name": "Security auditor metadata-only grant"},
+    {"id": "LF-15", "name": "Principal-resource hybrid opt-ins"},
+    {"id": "LF-16", "name": "Authorized Athena query succeeds"},
+    {"id": "LF-17", "name": "Metadata-only Athena query is denied"},
+    {"id": "LF-18", "name": "Existing analytics catalog remains unchanged"}
+  ],
+  "claim_boundary": {
+    "before_aws_run": "Implemented an isolated IAM and Lake Formation access-control demonstration with automated validation.",
+    "after_aws_run": "Deployed and verified Lake Formation tag-based access control with an observed authorized query, an observed denied query, and no changes to the existing analytics databases."
+  },
+  "data_notice": "The four-row CSV is a deterministic control-plane fixture. It contains no customer records and must not be presented as a business result."
+}

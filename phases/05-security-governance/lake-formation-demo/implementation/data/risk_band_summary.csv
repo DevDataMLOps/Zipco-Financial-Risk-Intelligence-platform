@@ -1,0 +1,5 @@
+risk_band,account_count,transaction_count,review_required,as_of_date
+LOW,3,12,false,2026-08-19
+MEDIUM,2,7,true,2026-08-19
+HIGH,1,3,true,2026-08-19
+CRITICAL,1,1,true,2026-08-19

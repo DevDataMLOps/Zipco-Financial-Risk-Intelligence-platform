@@ -10,7 +10,15 @@
       "Type": "String",
       "Default": "dev",
       "AllowedValues": ["dev", "test", "prod"]
+    },
+    "KmsKeyArn": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Optional ZIPCO customer-managed KMS key ARN. Empty preserves the SSE-S3 baseline."
     }
+  },
+  "Conditions": {
+    "UseCustomerManagedKms": {"Fn::Not": [{"Fn::Equals": [{"Ref": "KmsKeyArn"}, ""]}]}
   },
   "Resources": {
     "ZipcoGlueRole": {
@@ -87,14 +95,55 @@
         ]
       }
     },
+    "ZipcoGlueKmsPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Condition": "UseCustomerManagedKms",
+      "Properties": {
+        "PolicyName": "zipco-glue-security-governance-kms",
+        "Roles": [{"Ref": "ZipcoGlueRole"}],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": ["kms:Decrypt", "kms:Encrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"],
+              "Resource": {"Ref": "KmsKeyArn"}
+            }
+          ]
+        }
+      }
+    },
     "ZipcoGlueSecurityConfiguration": {
       "Type": "AWS::Glue::SecurityConfiguration",
       "Properties": {
-        "Name": {"Fn::Sub": "zipco-relational-v2-security-${Environment}"},
+        "Name": {
+          "Fn::If": [
+            "UseCustomerManagedKms",
+            {"Fn::Sub": "zipco-relational-v2-security-kms-${Environment}"},
+            {"Fn::Sub": "zipco-relational-v2-security-${Environment}"}
+          ]
+        },
         "EncryptionConfiguration": {
-          "S3Encryptions": [{"S3EncryptionMode": "SSE-S3"}],
-          "CloudWatchEncryption": {"CloudWatchEncryptionMode": "DISABLED"},
-          "JobBookmarksEncryption": {"JobBookmarksEncryptionMode": "DISABLED"}
+          "S3Encryptions": [
+            {
+              "S3EncryptionMode": {"Fn::If": ["UseCustomerManagedKms", "SSE-KMS", "SSE-S3"]},
+              "KmsKeyArn": {"Fn::If": ["UseCustomerManagedKms", {"Ref": "KmsKeyArn"}, {"Ref": "AWS::NoValue"}]}
+            }
+          ],
+          "CloudWatchEncryption": {
+            "Fn::If": [
+              "UseCustomerManagedKms",
+              {"CloudWatchEncryptionMode": "SSE-KMS", "KmsKeyArn": {"Ref": "KmsKeyArn"}},
+              {"CloudWatchEncryptionMode": "DISABLED"}
+            ]
+          },
+          "JobBookmarksEncryption": {
+            "Fn::If": [
+              "UseCustomerManagedKms",
+              {"JobBookmarksEncryptionMode": "CSE-KMS", "KmsKeyArn": {"Ref": "KmsKeyArn"}},
+              {"JobBookmarksEncryptionMode": "DISABLED"}
+            ]
+          }
         }
       }
     },

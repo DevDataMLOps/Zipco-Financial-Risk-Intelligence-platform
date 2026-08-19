@@ -14,6 +14,8 @@ Serverless AWS data engineering, financial analytics, explainable risk scoring, 
 - A repeatable CSV/Parquet/partition benchmark with correctness gates
 - CloudWatch dashboards, alarms, failure-event monitoring, and versioned evidence
 - An explainable transaction/account/customer risk engine with decision-ready review queues
+- A security and governance control plane with customer-managed encryption, audit logging, persona-based access, continuous compliance, and data classification
+- An isolated Lake Formation LF-TBAC demonstration with automated authorized/denied Athena access probes
 
 ## Architecture
 
@@ -30,6 +32,10 @@ flowchart LR
     GLUE --> OPS["CloudWatch + EventBridge monitoring"]
     ATHENA --> OPS
     PERF --> OPS
+    SECURITY["Security + governance<br/>KMS | IAM | CloudTrail | Config | Lake Formation"] --> S3
+    SECURITY --> GLUE
+    SECURITY --> ATHENA
+    SECURITY --> OPS
 ```
 
 ## Verified outcomes
@@ -46,6 +52,8 @@ flowchart LR
 | Partitioned workload | 95.55% reduction from full Parquet to the pruned 2023 workload |
 | Monitoring | 3 EventBridge rules, 3 alarms, and an operational dashboard |
 | Risk engine | 6 views, 10/10 validations, 6/6 analytics products, 6/6 saved queries |
+| Security and governance | `DEPLOYED_RUN_AND_VERIFIED`; 24/24 controls, 4/4 IAM personas, and 15/15 Config rules passed |
+| IAM/Lake Formation demo | `DEPLOYED_RUN_AND_VERIFIED`; 18/18 controls, 4/4 persona mappings, 12/12 hybrid opt-ins, and observed allow/deny Athena probes |
 
 ## Repository map
 
@@ -55,6 +63,8 @@ flowchart LR
 | [`phases/02-glue-etl`](phases/02-glue-etl/README.md) | Glue ETL, data-quality rules, quarantine, lineage, and implementation |
 | [`phases/03-optimization`](phases/03-optimization/README.md) | Athena/Parquet/partition benchmark and observability |
 | [`phases/04-business-intelligence`](phases/04-business-intelligence/README.md) | Financial KPIs, explainable risk engine, review queues, and governance |
+| [`phases/05-security-governance`](phases/05-security-governance/README.md) | KMS, IAM personas, CloudTrail, AWS Config, Access Analyzer, classification, and security evidence |
+| [`phases/05-security-governance/lake-formation-demo`](phases/05-security-governance/lake-formation-demo/README.md) | Isolated hybrid Lake Formation registration, LF-TBAC persona grants, allow/deny query probes, and evidence contract |
 | [`platform/s3`](platform/s3) | S3 baseline deployment and verified controls contract |
 | [`platform/data-generation`](platform/data-generation) | Deterministic relational-v2 generator |
 | [`platform/athena`](platform/athena/README.md) | Athena views, validation SQL, analytics SQL, and deployment automation |
@@ -67,6 +77,7 @@ flowchart LR
 2. **Glue ETL and data quality — complete**
 3. **Athena, Parquet, partitions, and optimization benchmark — complete**
 4. **Financial analytics and explainable risk engine — complete**
+5. **Security and governance — complete and verified, including the isolated IAM/Lake Formation access-control demonstration**
 
 Detailed status and evidence boundaries are recorded in [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
@@ -80,6 +91,8 @@ The AWS deployment bundles were designed for the verified account and Ohio regio
 4. Deploy Athena views and validation from [`platform/athena`](platform/athena).
 5. Deploy the benchmark and monitoring layer from [`phases/03-optimization/implementation`](phases/03-optimization/implementation).
 6. Deploy the risk engine from [`phases/04-business-intelligence/implementation`](phases/04-business-intelligence/implementation).
+7. Deploy and verify the security control plane from [`phases/05-security-governance/implementation`](phases/05-security-governance/implementation).
+8. Deploy the isolated IAM/Lake Formation proof from [`phases/05-security-governance/lake-formation-demo/implementation`](phases/05-security-governance/lake-formation-demo/implementation).
 
 Each deployment can incur AWS charges. The repository does not include credentials or access tokens.
 
@@ -92,6 +105,7 @@ The deterministic risk engine prioritizes synthetic activity for analyst review.
 - Built an AWS-verified PySpark pipeline that validates 2.34 million relational records across six datasets and publishes governed Parquet only when quality gates pass.
 - Measured an 88.21% full-scan reduction from CSV to Parquet and a 95.55% workload-level reduction from full Parquet to a partition-pruned 2023 query.
 - Delivered an explainable Athena risk engine scoring one million transactions, 150,000 accounts, and 100,000 customers with component-level reason codes.
+- Deployed and verified isolated Lake Formation LF-TBAC with four persona mappings, 12 scoped hybrid opt-ins, a successful authorized query, and an expected denied query.
 
 ## Validation
 

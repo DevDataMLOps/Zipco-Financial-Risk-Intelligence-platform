@@ -8,6 +8,7 @@
 | Glue ETL and data quality | Complete and verified | Complete |
 | Athena, Parquet, partitions, and optimization | Complete and verified | Complete |
 | Financial analytics and explainable risk engine | Complete and verified | Complete |
+| Security and governance | Complete and verified, including the isolated IAM/Lake Formation demo | Complete; optional console-detail screenshots remain |
 
 ## AWS environment used
 
@@ -35,4 +36,7 @@ Large generated CSV tables, the original one-million-row source, the supplied PD
 - QuickSight is not deployed; BI proof uses Athena semantic views, saved queries, and a portfolio dashboard presentation.
 - The risk engine is deterministic and synthetic; it is not a validated production model.
 - The optimization benchmark covers four query strategies with three uncached runs each; it is not a concurrency or stress test.
-
+- Phase 5 changes default S3 encryption for new writes; it does not re-encrypt historical object versions. A separately approved migration is required for that operation.
+- Lake Formation enforcement is intentionally not activated on the three existing analytics databases. The verified isolated hybrid-access demo under `zipco_lf_governance_demo` proves LF-TBAC through observed allow/deny Athena probes without interrupting the existing Glue and Athena workloads.
+- Security alarms have no external notification destination until an approved operational channel is supplied.
+- AWS Config evaluates both ZIPCO resources and account-level identity posture; noncompliant findings remain visible and are not treated as a deployment failure unless they violate a mandatory structural gate.

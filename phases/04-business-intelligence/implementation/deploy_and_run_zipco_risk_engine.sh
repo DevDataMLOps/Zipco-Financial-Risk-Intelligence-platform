@@ -55,6 +55,7 @@ if [[ "$ACTUAL_ACCOUNT" != "$EXPECTED_ACCOUNT" ]]; then
 fi
 
 aws s3api head-bucket --bucket "$BUCKET"
+KMS_KEY_ARN="$(aws kms describe-key --key-id alias/zipco-financial-platform --query 'KeyMetadata.Arn' --output text 2>/dev/null || true)"
 
 SOURCE_TABLES_JSON="$(aws glue get-tables --database-name "$SOURCE_DATABASE" --query 'sort(TableList[?TableType!=`VIRTUAL_VIEW`].Name)' --output json)"
 EXPECTED_SOURCE_TABLES='["zipco_v2_accounts","zipco_v2_categorized_transactions","zipco_v2_customers","zipco_v2_market_data","zipco_v2_transaction_categories","zipco_v2_transactions"]'
@@ -71,23 +72,28 @@ if ! jq -e --argjson expected "$EXPECTED_BASELINE_VIEWS" 'sort == ($expected | s
 fi
 
 WORKGROUP_JSON="$(aws athena get-work-group --work-group "$WORKGROUP" --output json)"
-if ! jq -e --arg bucket "$BUCKET" '
+EXPECTED_RESULT_ENCRYPTION="SSE_S3"
+if [[ -n "$KMS_KEY_ARN" && "$KMS_KEY_ARN" != "None" ]]; then
+  EXPECTED_RESULT_ENCRYPTION="SSE_KMS"
+fi
+if ! jq -e --arg bucket "$BUCKET" --arg encryption "$EXPECTED_RESULT_ENCRYPTION" --arg kms_key "$KMS_KEY_ARN" '
   .WorkGroup.State == "ENABLED"
   and .WorkGroup.Configuration.EnforceWorkGroupConfiguration == true
   and .WorkGroup.Configuration.PublishCloudWatchMetricsEnabled == true
   and .WorkGroup.Configuration.ResultConfiguration.OutputLocation == ("s3://" + $bucket + "/athena/results/")
-  and .WorkGroup.Configuration.ResultConfiguration.EncryptionConfiguration.EncryptionOption == "SSE_S3"
+  and .WorkGroup.Configuration.ResultConfiguration.EncryptionConfiguration.EncryptionOption == $encryption
+  and (if $encryption == "SSE_KMS" then .WorkGroup.Configuration.ResultConfiguration.EncryptionConfiguration.KmsKey == $kms_key else true end)
 ' <<< "$WORKGROUP_JSON" >/dev/null; then
   echo "Governed Athena workgroup verification failed." >&2
   exit 7
 fi
 
 echo "Uploading versioned risk-engine SQL and model contract"
-aws s3 sync "$VIEWS_DIR" "s3://${BUCKET}/risk-engine/sql/v1/views/" --only-show-errors --sse AES256 --exclude "*" --include "*.sql"
-aws s3 sync "$VALIDATION_DIR" "s3://${BUCKET}/risk-engine/sql/v1/validation/" --only-show-errors --sse AES256 --exclude "*" --include "*.sql"
-aws s3 sync "$ANALYTICS_DIR" "s3://${BUCKET}/risk-engine/sql/v1/analytics/" --only-show-errors --sse AES256 --exclude "*" --include "*.sql"
+aws s3 sync "$VIEWS_DIR" "s3://${BUCKET}/risk-engine/sql/v1/views/" --only-show-errors --exclude "*" --include "*.sql"
+aws s3 sync "$VALIDATION_DIR" "s3://${BUCKET}/risk-engine/sql/v1/validation/" --only-show-errors --exclude "*" --include "*.sql"
+aws s3 sync "$ANALYTICS_DIR" "s3://${BUCKET}/risk-engine/sql/v1/analytics/" --only-show-errors --exclude "*" --include "*.sql"
 aws s3 cp "$CONTRACT_FILE" "s3://${BUCKET}/metadata/contracts/risk_engine/risk_model_contract_v1.json" \
-  --only-show-errors --sse AES256 --content-type application/json
+  --only-show-errors --content-type application/json
 
 echo "Deploying the risk database and six saved Athena queries"
 aws cloudformation validate-template --template-body "file://${CFN_TEMPLATE}" >/dev/null
@@ -290,9 +296,9 @@ jq -n \
 
 EVIDENCE_PREFIX="risk-engine/evidence/run_id=${RUN_ID}"
 aws s3 cp "$EVIDENCE_FILE" "s3://${BUCKET}/${EVIDENCE_PREFIX}/zipco_risk_engine_deployment_verification.json" \
-  --only-show-errors --sse AES256 --content-type application/json
+  --only-show-errors --content-type application/json
 aws s3 cp "$EVIDENCE_FILE" "s3://${BUCKET}/metadata/contracts/risk_engine/zipco_risk_engine_deployment_verification_latest.json" \
-  --only-show-errors --sse AES256 --content-type application/json
+  --only-show-errors --content-type application/json
 
 VALIDATION_COUNT="$(jq '.validations.rules_passed' "$EVIDENCE_FILE")"
 ANALYTICS_COUNT="$(jq '.analytics.queries_passed' "$EVIDENCE_FILE")"

@@ -1,0 +1,28 @@
+{
+  "artifact_type": "source_labeled_screenshot_transcription",
+  "source_screenshot": "../screenshots/01-lake-formation-demo-verified.png",
+  "source_screenshot_sha256": "b894bfb5b812a3480c39e1e29a694f4e9fd8dfe8fad109e4e9a2e591caebf176",
+  "observed_run_id": "20260819T193430Z-lambda",
+  "status": "DEPLOYED_RUN_AND_VERIFIED",
+  "controls": {
+    "status": "PASS",
+    "passed": 18,
+    "total": 18
+  },
+  "registered_location": {
+    "arn": "arn:aws:s3:::zipco-financial-platform-825999268272-us-east-2/governance-demo",
+    "access_mode": "HYBRID"
+  },
+  "lf_tags": {
+    "zipco-domain": "risk-analytics",
+    "zipco-sensitivity": "internal"
+  },
+  "persona_mappings": "4/4",
+  "hybrid_opt_ins": "12/12",
+  "authorized_query": "SUCCEEDED",
+  "metadata_only_query": "FAILED_AS_EXPECTED",
+  "existing_analytics_catalog": "UNCHANGED (3/3 databases)",
+  "authoritative_evidence_uri": "s3://zipco-financial-platform-825999268272-us-east-2/security-governance/lake-formation-demo/evidence/run_id=20260819T193430Z-lambda/zipco_iam_lake_formation_demo_verification.json",
+  "original_caller": "arn:aws:iam::825999268272:root",
+  "provenance_note": "Values were transcribed from the supplied final CloudShell screenshot. This file is not the machine-generated Lambda response; the authoritative JSON remains at the recorded S3 URI."
+}

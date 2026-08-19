@@ -1,0 +1,145 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS Config managed-rule pack for the ZIPCO security and governance phase.",
+  "Parameters": {
+    "DataBucketName": {"Type": "String"},
+    "SecurityKeyArn": {"Type": "String"}
+  },
+  "Resources": {
+    "S3PublicReadProhibited": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-s3-public-read-prohibited",
+        "Description": "S3 buckets must not permit public read access.",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "S3_BUCKET_PUBLIC_READ_PROHIBITED"}
+      }
+    },
+    "S3PublicWriteProhibited": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-s3-public-write-prohibited",
+        "Description": "S3 buckets must not permit public write access.",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "S3_BUCKET_PUBLIC_WRITE_PROHIBITED"}
+      }
+    },
+    "S3TlsRequired": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-s3-tls-required",
+        "Description": "S3 bucket policies must deny insecure transport.",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "S3_BUCKET_SSL_REQUESTS_ONLY"}
+      }
+    },
+    "S3EncryptionEnabled": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-s3-default-encryption-enabled",
+        "Description": "S3 buckets must have default encryption enabled.",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "S3_BUCKET_SERVER_SIDE_ENCRYPTION_ENABLED"}
+      }
+    },
+    "S3KmsEncryption": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-s3-customer-managed-kms",
+        "Description": "S3 buckets must use the approved ZIPCO KMS key.",
+        "InputParameters": {"kmsKeyArns": {"Ref": "SecurityKeyArn"}},
+        "Source": {"Owner": "AWS", "SourceIdentifier": "S3_DEFAULT_ENCRYPTION_KMS"}
+      }
+    },
+    "S3VersioningEnabled": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-s3-versioning-enabled",
+        "Description": "S3 buckets must have versioning enabled.",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "S3_BUCKET_VERSIONING_ENABLED"}
+      }
+    },
+    "CloudTrailEnabled": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-cloudtrail-enabled",
+        "Description": "At least one CloudTrail trail must be enabled.",
+        "MaximumExecutionFrequency": "TwentyFour_Hours",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "CLOUD_TRAIL_ENABLED"}
+      }
+    },
+    "CloudTrailMultiRegion": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-cloudtrail-multi-region",
+        "Description": "At least one multi-region CloudTrail trail must be enabled.",
+        "MaximumExecutionFrequency": "TwentyFour_Hours",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "MULTI_REGION_CLOUD_TRAIL_ENABLED"}
+      }
+    },
+    "CloudTrailCloudWatchLogs": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-cloudtrail-cloudwatch-logs",
+        "Description": "CloudTrail must deliver events to CloudWatch Logs.",
+        "MaximumExecutionFrequency": "TwentyFour_Hours",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "CLOUD_TRAIL_CLOUD_WATCH_LOGS_ENABLED"}
+      }
+    },
+    "CloudTrailEncrypted": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-cloudtrail-kms-encrypted",
+        "Description": "CloudTrail logs must use KMS encryption.",
+        "MaximumExecutionFrequency": "TwentyFour_Hours",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "CLOUD_TRAIL_ENCRYPTION_ENABLED"}
+      }
+    },
+    "CloudTrailValidation": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-cloudtrail-log-validation",
+        "Description": "CloudTrail log-file integrity validation must be enabled.",
+        "MaximumExecutionFrequency": "TwentyFour_Hours",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "CLOUD_TRAIL_LOG_FILE_VALIDATION_ENABLED"}
+      }
+    },
+    "CloudTrailS3DataEvents": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-cloudtrail-s3-data-events",
+        "Description": "CloudTrail must record object-level events for the ZIPCO data bucket.",
+        "InputParameters": {"S3BucketNames": {"Ref": "DataBucketName"}},
+        "MaximumExecutionFrequency": "TwentyFour_Hours",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "CLOUDTRAIL_S3_DATAEVENTS_ENABLED"}
+      }
+    },
+    "KmsRotationEnabled": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-kms-rotation-enabled",
+        "Description": "Customer-managed KMS keys must have automatic rotation enabled.",
+        "MaximumExecutionFrequency": "TwentyFour_Hours",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "CMK_BACKING_KEY_ROTATION_ENABLED"}
+      }
+    },
+    "RootAccessKeyCheck": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-root-access-key-check",
+        "Description": "The AWS account root user must not have access keys.",
+        "MaximumExecutionFrequency": "TwentyFour_Hours",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "IAM_ROOT_ACCESS_KEY_CHECK"}
+      }
+    },
+    "IamUserMfaEnabled": {
+      "Type": "AWS::Config::ConfigRule",
+      "Properties": {
+        "ConfigRuleName": "zipco-iam-user-mfa-enabled",
+        "Description": "IAM users with console or API credentials must use MFA.",
+        "MaximumExecutionFrequency": "TwentyFour_Hours",
+        "Source": {"Owner": "AWS", "SourceIdentifier": "IAM_USER_MFA_ENABLED"}
+      }
+    }
+  },
+  "Outputs": {
+    "ManagedRuleCount": {"Value": 15},
+    "RulePack": {"Value": "zipco-security-governance-v1"}
+  }
+}

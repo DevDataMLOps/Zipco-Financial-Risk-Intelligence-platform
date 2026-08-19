@@ -1,0 +1,268 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Bootstrap scoped CloudFormation and Lambda administrators for the isolated ZIPCO Lake Formation demonstration.",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": ["dev", "test", "prod"]
+    },
+    "DataBucketName": {
+      "Type": "String"
+    },
+    "SecurityKeyArn": {
+      "Type": "String"
+    },
+    "AthenaWorkGroupName": {
+      "Type": "String",
+      "Default": "zipco-risk-analytics"
+    }
+  },
+  "Resources": {
+    "ZipcoLakeFormationDeploymentRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-lake-formation-deployment-${Environment}"},
+        "Description": "Privileged, scoped deployment role for the isolated ZIPCO Lake Formation demo.",
+        "MaxSessionDuration": 3600,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"Service": "cloudformation.amazonaws.com"},
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "zipco-lake-formation-demo-deployment",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "ManageDemoRolesAndPersonaPolicies",
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:CreateRole",
+                    "iam:DeleteRole",
+                    "iam:GetRole",
+                    "iam:ListRolePolicies",
+                    "iam:ListRoleTags",
+                    "iam:TagRole",
+                    "iam:UntagRole",
+                    "iam:UpdateAssumeRolePolicy",
+                    "iam:UpdateRoleDescription",
+                    "iam:PutRolePolicy",
+                    "iam:GetRolePolicy",
+                    "iam:DeleteRolePolicy"
+                  ],
+                  "Resource": [
+                    {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/zipco-lf-*-${Environment}"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/zipco-data-engineer-${Environment}"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/zipco-risk-analyst-${Environment}"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/zipco-data-steward-${Environment}"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/zipco-security-auditor-${Environment}"}
+                  ]
+                },
+                {
+                  "Sid": "PassLakeFormationDataAccessRole",
+                  "Effect": "Allow",
+                  "Action": "iam:PassRole",
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/zipco-lf-data-access-${Environment}"},
+                  "Condition": {"StringEquals": {"iam:PassedToService": "lakeformation.amazonaws.com"}}
+                },
+                {
+                  "Sid": "PassValidationRoleToLambda",
+                  "Effect": "Allow",
+                  "Action": "iam:PassRole",
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/zipco-lf-validation-${Environment}"},
+                  "Condition": {"StringEquals": {"iam:PassedToService": "lambda.amazonaws.com"}}
+                },
+                {
+                  "Sid": "AdministerIsolatedLakeFormationDemo",
+                  "Effect": "Allow",
+                  "Action": "lakeformation:*",
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "ManageDemoCatalog",
+                  "Effect": "Allow",
+                  "Action": [
+                    "glue:CreateDatabase",
+                    "glue:UpdateDatabase",
+                    "glue:DeleteDatabase",
+                    "glue:GetDatabase",
+                    "glue:GetDatabases",
+                    "glue:GetCatalog",
+                    "glue:CreateTable",
+                    "glue:UpdateTable",
+                    "glue:DeleteTable",
+                    "glue:GetTable",
+                    "glue:GetTables",
+                    "glue:GetPartitions"
+                  ],
+                  "Resource": [
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:catalog"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:database/zipco_lf_governance_demo"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:table/zipco_lf_governance_demo/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:database/zipco_financial_*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:table/zipco_financial_*/*"}
+                  ]
+                },
+                {
+                  "Sid": "OperateDemoObjects",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+                  "Resource": [
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/governance-demo/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/security-governance/lake-formation-demo/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/metadata/contracts/lake-formation-demo/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/athena/results/*"}
+                  ]
+                },
+                {
+                  "Sid": "ListDemoPrefixes",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetBucketLocation", "s3:ListBucket"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"},
+                  "Condition": {
+                    "StringLike": {
+                      "s3:prefix": [
+                        "governance-demo/*",
+                        "security-governance/lake-formation-demo/*",
+                        "metadata/contracts/lake-formation-demo/*",
+                        "athena/results/*"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "Sid": "UseSecurityKey",
+                  "Effect": "Allow",
+                  "Action": ["kms:Decrypt", "kms:Encrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"],
+                  "Resource": {"Ref": "SecurityKeyArn"}
+                },
+                {
+                  "Sid": "RunVerificationQueries",
+                  "Effect": "Allow",
+                  "Action": ["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults", "athena:StopQueryExecution"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${AthenaWorkGroupName}"}
+                },
+                {
+                  "Sid": "ManageValidationFunction",
+                  "Effect": "Allow",
+                  "Action": ["lambda:CreateFunction", "lambda:DeleteFunction", "lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:ListTags", "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:TagResource", "lambda:UntagResource"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:zipco-lf-validator-${Environment}"}
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "PrivilegeBoundary", "Value": "deployment-only"},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoLakeFormationValidationRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-lf-validation-${Environment}"},
+        "Description": "Lake Formation administrator used only by the ZIPCO validation Lambda.",
+        "MaxSessionDuration": 3600,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+        },
+        "Policies": [
+          {
+            "PolicyName": "zipco-lf-validation",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {"Effect": "Allow", "Action": "lakeformation:*", "Resource": "*"},
+                {
+                  "Effect": "Allow",
+                  "Action": ["glue:GetCatalog", "glue:GetDatabase", "glue:GetDatabases", "glue:GetTable", "glue:GetTables", "glue:GetPartitions"],
+                  "Resource": [
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:catalog"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:database/zipco_lf_governance_demo"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:table/zipco_lf_governance_demo/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:database/zipco_financial_*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:table/zipco_financial_*/*"}
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload"],
+                  "Resource": [
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/governance-demo/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/security-governance/lake-formation-demo/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/metadata/contracts/lake-formation-demo/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/athena/results/*"}
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:GetBucketLocation", "s3:ListBucket"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"},
+                  "Condition": {"StringLike": {"s3:prefix": ["governance-demo/*", "security-governance/lake-formation-demo/*", "metadata/contracts/lake-formation-demo/*", "athena/results/*"]}}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+                  "Resource": {"Ref": "SecurityKeyArn"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults", "athena:StopQueryExecution"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${AthenaWorkGroupName}"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "sts:AssumeRole",
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/zipco-lf-*-probe-${Environment}"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "logs:CreateLogGroup",
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/zipco-lf-validator-${Environment}:*"}
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "PrivilegeBoundary", "Value": "validation-only"},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoLakeFormationSettings": {
+      "Type": "AWS::LakeFormation::DataLakeSettings",
+      "DependsOn": ["ZipcoLakeFormationDeploymentRole", "ZipcoLakeFormationValidationRole"],
+      "Properties": {
+        "Admins": [
+          {"DataLakePrincipalIdentifier": {"Fn::GetAtt": ["ZipcoLakeFormationDeploymentRole", "Arn"]}},
+          {"DataLakePrincipalIdentifier": {"Fn::GetAtt": ["ZipcoLakeFormationValidationRole", "Arn"]}}
+        ],
+        "MutationType": "APPEND"
+      }
+    }
+  },
+  "Outputs": {
+    "DeploymentRoleArn": {"Value": {"Fn::GetAtt": ["ZipcoLakeFormationDeploymentRole", "Arn"]}},
+    "ValidationRoleArn": {"Value": {"Fn::GetAtt": ["ZipcoLakeFormationValidationRole", "Arn"]}}
+  }
+}

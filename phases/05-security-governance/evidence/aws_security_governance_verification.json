@@ -1,0 +1,40 @@
+{
+  "artifact": "ZIPCO Security and Governance AWS verification",
+  "evidence_status": "TRANSCRIBED_FROM_USER_SUPPLIED_AWS_CONSOLE_OUTPUT",
+  "source_note": "The values below were visible in the successful AWS CloudShell completion output supplied by the user. The authoritative machine-generated deployment record remains at the recorded S3 URI and is not represented as a downloaded AWS export.",
+  "aws": {
+    "account_id": "825999268272",
+    "region": "us-east-2",
+    "data_bucket": "zipco-financial-platform-825999268272-us-east-2",
+    "audit_bucket": "zipco-security-audit-825999268272-us-east-2"
+  },
+  "deployment": {
+    "status": "DEPLOYED_RUN_AND_VERIFIED",
+    "run_id": "20260819T180532Z-cloudshell",
+    "security_controls": {"passed": 24, "expected": 24},
+    "kms_key_arn": "arn:aws:kms:us-east-2:825999268272:key/30e4bfda-50a6-4538-83e2-ccce8281e322a",
+    "kms_rotation_enabled": true,
+    "primary_bucket_encryption": "SSE-KMS with S3 Bucket Key",
+    "cloudtrail": {
+      "name": "zipco-security-audit",
+      "multi_region": true,
+      "log_file_validation": true,
+      "logging": true,
+      "s3_data_events": true
+    },
+    "iam_personas": {"verified": 4, "expected": 4},
+    "aws_config": {
+      "managed_rules": {"verified": 15, "expected": 15},
+      "noncompliant": 0,
+      "insufficient_data": 1,
+      "note": "One rule had not completed its initial evaluation when the terminal evidence was captured."
+    },
+    "catalog_governance": {
+      "tagged_databases": 3,
+      "classified_tables": 16
+    },
+    "dashboard_url": "https://us-east-2.console.aws.amazon.com/cloudwatch/home?region=us-east-2#dashboards/dashboard/zipco-security-governance",
+    "authoritative_evidence": "s3://zipco-financial-platform-825999268272-us-east-2/security-governance/evidence/run_id=20260819T180532Z-cloudshell/zipco_security_governance_deployment_verification.json",
+    "latest_contract_copy": "s3://zipco-financial-platform-825999268272-us-east-2/metadata/contracts/security-governance/zipco_security_governance_deployment_verification_latest.json"
+  }
+}

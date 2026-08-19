@@ -1,0 +1,865 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Security and governance control plane for the ZIPCO Financial Risk Intelligence Platform.",
+  "Parameters": {
+    "DataBucketName": {
+      "Type": "String",
+      "Description": "Existing ZIPCO data-lake bucket."
+    },
+    "Environment": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": ["dev", "test", "prod"]
+    },
+    "GlueRoleName": {
+      "Type": "String",
+      "Default": "zipco-glue-relational-v2-dev"
+    },
+    "AthenaWorkGroupName": {
+      "Type": "String",
+      "Default": "zipco-risk-analytics"
+    },
+    "EnableS3DataEvents": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": ["true", "false"],
+      "Description": "Enable chargeable CloudTrail object-level events for the ZIPCO data bucket."
+    },
+    "CreateAccessAnalyzer": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": ["true", "false"]
+    },
+    "AuditRetentionDays": {
+      "Type": "Number",
+      "Default": 365,
+      "MinValue": 90,
+      "MaxValue": 3650
+    }
+  },
+  "Conditions": {
+    "LogS3DataEvents": {"Fn::Equals": [{"Ref": "EnableS3DataEvents"}, "true"]},
+    "ProvisionAccessAnalyzer": {"Fn::Equals": [{"Ref": "CreateAccessAnalyzer"}, "true"]}
+  },
+  "Resources": {
+    "ZipcoSecurityKey": {
+      "Type": "AWS::KMS::Key",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "Description": "ZIPCO customer-managed key for governed data, analytics results, Glue metadata, and audit records.",
+        "Enabled": true,
+        "EnableKeyRotation": true,
+        "KeySpec": "SYMMETRIC_DEFAULT",
+        "KeyUsage": "ENCRYPT_DECRYPT",
+        "MultiRegion": false,
+        "PendingWindowInDays": 30,
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "EnableAccountAdministration",
+              "Effect": "Allow",
+              "Principal": {"AWS": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"}},
+              "Action": "kms:*",
+              "Resource": "*"
+            },
+            {
+              "Sid": "AllowCloudTrailEncryption",
+              "Effect": "Allow",
+              "Principal": {"Service": "cloudtrail.amazonaws.com"},
+              "Action": ["kms:GenerateDataKey*", "kms:DescribeKey"],
+              "Resource": "*",
+              "Condition": {
+                "StringEquals": {"aws:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/zipco-security-audit"}},
+                "StringLike": {"kms:EncryptionContext:aws:cloudtrail:arn": {"Fn::Sub": "arn:${AWS::Partition}:cloudtrail:*:${AWS::AccountId}:trail/*"}}
+              }
+            },
+            {
+              "Sid": "AllowCloudTrailDecryptForDescription",
+              "Effect": "Allow",
+              "Principal": {"Service": "cloudtrail.amazonaws.com"},
+              "Action": ["kms:Decrypt", "kms:ReEncryptFrom"],
+              "Resource": "*",
+              "Condition": {"StringEquals": {"aws:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/zipco-security-audit"}}}
+            },
+            {
+              "Sid": "AllowConfigDeliveryEncryption",
+              "Effect": "Allow",
+              "Principal": {"Service": "config.amazonaws.com"},
+              "Action": ["kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+              "Resource": "*",
+              "Condition": {"StringEquals": {"aws:SourceAccount": {"Ref": "AWS::AccountId"}}}
+            },
+            {
+              "Sid": "AllowS3InventoryEncryption",
+              "Effect": "Allow",
+              "Principal": {"Service": "s3.amazonaws.com"},
+              "Action": ["kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+              "Resource": "*",
+              "Condition": {
+                "StringEquals": {"aws:SourceAccount": {"Ref": "AWS::AccountId"}},
+                "ArnLike": {"aws:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"}}
+              }
+            },
+            {
+              "Sid": "AllowCloudWatchLogsEncryption",
+              "Effect": "Allow",
+              "Principal": {"Service": {"Fn::Sub": "logs.${AWS::Region}.amazonaws.com"}},
+              "Action": ["kms:Encrypt*", "kms:Decrypt*", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"],
+              "Resource": "*",
+              "Condition": {"ArnLike": {"kms:EncryptionContext:aws:logs:arn": {"Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/*"}}}
+            }
+          ]
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"},
+          {"Key": "DataClassification", "Value": "Confidential-Financial"}
+        ]
+      }
+    },
+    "ZipcoSecurityKeyAlias": {
+      "Type": "AWS::KMS::Alias",
+      "Properties": {
+        "AliasName": "alias/zipco-financial-platform",
+        "TargetKeyId": {"Ref": "ZipcoSecurityKey"}
+      }
+    },
+    "ZipcoAuditBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketName": {"Fn::Sub": "zipco-security-audit-${AWS::AccountId}-${AWS::Region}"},
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "BucketKeyEnabled": true,
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "aws:kms",
+                "KMSMasterKeyID": {"Fn::GetAtt": ["ZipcoSecurityKey", "Arn"]}
+              }
+            }
+          ]
+        },
+        "OwnershipControls": {"Rules": [{"ObjectOwnership": "BucketOwnerEnforced"}]},
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "IgnorePublicAcls": true,
+          "BlockPublicPolicy": true,
+          "RestrictPublicBuckets": true
+        },
+        "VersioningConfiguration": {"Status": "Enabled"},
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "audit-retention",
+              "Status": "Enabled",
+              "Transitions": [{"StorageClass": "GLACIER", "TransitionInDays": 90}],
+              "ExpirationInDays": {"Ref": "AuditRetentionDays"},
+              "NoncurrentVersionTransitions": [{"StorageClass": "GLACIER", "TransitionInDays": 90}],
+              "NoncurrentVersionExpiration": {"NoncurrentDays": {"Ref": "AuditRetentionDays"}}
+            },
+            {
+              "Id": "abort-incomplete-uploads",
+              "Status": "Enabled",
+              "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7}
+            }
+          ]
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"},
+          {"Key": "DataClassification", "Value": "Restricted-Audit"},
+          {"Key": "Retention", "Value": {"Fn::Sub": "${AuditRetentionDays}-days"}}
+        ]
+      }
+    },
+    "ZipcoAuditBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {"Ref": "ZipcoAuditBucket"},
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {"Fn::GetAtt": ["ZipcoAuditBucket", "Arn"]},
+                {"Fn::Sub": "${ZipcoAuditBucket.Arn}/*"}
+              ],
+              "Condition": {"Bool": {"aws:SecureTransport": "false"}}
+            },
+            {
+              "Sid": "CloudTrailBucketAclCheck",
+              "Effect": "Allow",
+              "Principal": {"Service": "cloudtrail.amazonaws.com"},
+              "Action": "s3:GetBucketAcl",
+              "Resource": {"Fn::GetAtt": ["ZipcoAuditBucket", "Arn"]},
+              "Condition": {"StringEquals": {"aws:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/zipco-security-audit"}}}
+            },
+            {
+              "Sid": "CloudTrailLogDelivery",
+              "Effect": "Allow",
+              "Principal": {"Service": "cloudtrail.amazonaws.com"},
+              "Action": "s3:PutObject",
+              "Resource": {"Fn::Sub": "${ZipcoAuditBucket.Arn}/cloudtrail/AWSLogs/${AWS::AccountId}/*"},
+              "Condition": {
+                "StringEquals": {
+                  "s3:x-amz-acl": "bucket-owner-full-control",
+                  "aws:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/zipco-security-audit"}
+                }
+              }
+            },
+            {
+              "Sid": "ConfigBucketRead",
+              "Effect": "Allow",
+              "Principal": {"Service": "config.amazonaws.com"},
+              "Action": ["s3:GetBucketAcl", "s3:ListBucket"],
+              "Resource": {"Fn::GetAtt": ["ZipcoAuditBucket", "Arn"]},
+              "Condition": {"StringEquals": {"aws:SourceAccount": {"Ref": "AWS::AccountId"}}}
+            },
+            {
+              "Sid": "ConfigLogDelivery",
+              "Effect": "Allow",
+              "Principal": {"Service": "config.amazonaws.com"},
+              "Action": "s3:PutObject",
+              "Resource": {"Fn::Sub": "${ZipcoAuditBucket.Arn}/config/AWSLogs/${AWS::AccountId}/Config/*"},
+              "Condition": {
+                "StringEquals": {
+                  "s3:x-amz-acl": "bucket-owner-full-control",
+                  "aws:SourceAccount": {"Ref": "AWS::AccountId"}
+                }
+              }
+            },
+            {
+              "Sid": "S3InventoryDelivery",
+              "Effect": "Allow",
+              "Principal": {"Service": "s3.amazonaws.com"},
+              "Action": "s3:PutObject",
+              "Resource": {"Fn::Sub": "${ZipcoAuditBucket.Arn}/inventory/data-lake/*"},
+              "Condition": {
+                "StringEquals": {
+                  "aws:SourceAccount": {"Ref": "AWS::AccountId"},
+                  "s3:x-amz-acl": "bucket-owner-full-control"
+                },
+                "ArnLike": {"aws:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"}}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ZipcoAuditLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "LogGroupName": "/aws/cloudtrail/zipco-security-audit",
+        "KmsKeyId": {"Fn::GetAtt": ["ZipcoSecurityKey", "Arn"]},
+        "RetentionInDays": 90,
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoCloudTrailLogsRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-cloudtrail-to-logs-${Environment}"},
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{"Effect": "Allow", "Principal": {"Service": "cloudtrail.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+        },
+        "Policies": [
+          {
+            "PolicyName": "write-zipco-cloudtrail-log-group",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+                  "Resource": {"Fn::GetAtt": ["ZipcoAuditLogGroup", "Arn"]}
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoAuditTrail": {
+      "Type": "AWS::CloudTrail::Trail",
+      "DependsOn": ["ZipcoAuditBucketPolicy", "ZipcoAuditLogGroup"],
+      "Properties": {
+        "TrailName": "zipco-security-audit",
+        "S3BucketName": {"Ref": "ZipcoAuditBucket"},
+        "S3KeyPrefix": "cloudtrail",
+        "KMSKeyId": {"Fn::GetAtt": ["ZipcoSecurityKey", "Arn"]},
+        "CloudWatchLogsLogGroupArn": {"Fn::GetAtt": ["ZipcoAuditLogGroup", "Arn"]},
+        "CloudWatchLogsRoleArn": {"Fn::GetAtt": ["ZipcoCloudTrailLogsRole", "Arn"]},
+        "EnableLogFileValidation": true,
+        "IncludeGlobalServiceEvents": true,
+        "IsLogging": true,
+        "IsMultiRegionTrail": true,
+        "AdvancedEventSelectors": {
+          "Fn::If": [
+            "LogS3DataEvents",
+            [
+              {
+                "Name": "Management events",
+                "FieldSelectors": [{"Field": "eventCategory", "Equals": ["Management"]}]
+              },
+              {
+                "Name": "ZIPCO S3 object activity",
+                "FieldSelectors": [
+                  {"Field": "eventCategory", "Equals": ["Data"]},
+                  {"Field": "resources.type", "Equals": ["AWS::S3::Object"]},
+                  {"Field": "resources.ARN", "StartsWith": [{"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/"}]}
+                ]
+              }
+            ],
+            [
+              {
+                "Name": "Management events",
+                "FieldSelectors": [{"Field": "eventCategory", "Equals": ["Management"]}]
+              }
+            ]
+          ]
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoConfigRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-config-recorder-${Environment}"},
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{"Effect": "Allow", "Principal": {"Service": "config.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+        },
+        "ManagedPolicyArns": [{"Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWS_ConfigRole"}],
+        "Policies": [
+          {
+            "PolicyName": "zipco-config-audit-delivery",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:GetBucketAcl", "s3:ListBucket"],
+                  "Resource": {"Fn::GetAtt": ["ZipcoAuditBucket", "Arn"]}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:PutObject",
+                  "Resource": {"Fn::Sub": "${ZipcoAuditBucket.Arn}/config/*"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+                  "Resource": {"Fn::GetAtt": ["ZipcoSecurityKey", "Arn"]}
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoCatalogEncryptionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-glue-catalog-encryption-${Environment}"},
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{"Effect": "Allow", "Principal": {"Service": "glue.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+        },
+        "Policies": [
+          {
+            "PolicyName": "zipco-catalog-kms-use",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+                  "Resource": {"Fn::GetAtt": ["ZipcoSecurityKey", "Arn"]}
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoGlueKmsPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "zipco-glue-customer-managed-kms",
+        "Roles": [{"Ref": "GlueRoleName"}],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": ["kms:Decrypt", "kms:Encrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"],
+              "Resource": {"Fn::GetAtt": ["ZipcoSecurityKey", "Arn"]}
+            }
+          ]
+        }
+      }
+    },
+    "ZipcoDataEngineerRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-data-engineer-${Environment}"},
+        "Description": "MFA-gated operator for the ZIPCO ingestion, Glue, catalog, and Athena pipeline.",
+        "MaxSessionDuration": 14400,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"AWS": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"}},
+              "Action": "sts:AssumeRole",
+              "Condition": {"Bool": {"aws:MultiFactorAuthPresent": "true"}}
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "zipco-data-engineering",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "ListGovernedPrefixes",
+                  "Effect": "Allow",
+                  "Action": "s3:ListBucket",
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"},
+                  "Condition": {"StringLike": {"s3:prefix": ["validated/*", "curated/*", "quarantine/*", "quality/*", "glue/*", "athena/results/*", "metadata/*"]}}
+                },
+                {
+                  "Sid": "ReadDataBucketLocation",
+                  "Effect": "Allow",
+                  "Action": "s3:GetBucketLocation",
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"}
+                },
+                {
+                  "Sid": "OperateGovernedObjects",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+                  "Resource": [
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/validated/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/curated/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/quarantine/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/quality/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/glue/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/athena/results/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/metadata/*"}
+                  ]
+                },
+                {
+                  "Sid": "OperateGluePipeline",
+                  "Effect": "Allow",
+                  "Action": ["glue:GetJob", "glue:GetJobRun", "glue:GetJobRuns", "glue:StartJobRun", "glue:BatchStopJobRun", "glue:GetCrawler", "glue:StartCrawler", "glue:StopCrawler"],
+                  "Resource": [
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:job/zipco-relational-v2-validation-transform"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:crawler/zipco-relational-v2-curated-crawler"}
+                  ]
+                },
+                {
+                  "Sid": "ManageZipcoCatalog",
+                  "Effect": "Allow",
+                  "Action": ["glue:GetDatabase", "glue:GetDatabases", "glue:GetTable", "glue:GetTables", "glue:GetPartitions", "glue:BatchCreatePartition", "glue:BatchDeletePartition", "glue:CreatePartition", "glue:DeletePartition", "glue:UpdatePartition", "glue:UpdateTable"],
+                  "Resource": [
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:catalog"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:database/zipco_*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:table/zipco_*/*"}
+                  ]
+                },
+                {
+                  "Sid": "RunGovernedAthenaQueries",
+                  "Effect": "Allow",
+                  "Action": ["athena:StartQueryExecution", "athena:StopQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults", "athena:GetWorkGroup"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${AthenaWorkGroupName}"}
+                },
+                {
+                  "Sid": "UseZipcoKmsKey",
+                  "Effect": "Allow",
+                  "Action": ["kms:Decrypt", "kms:Encrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"],
+                  "Resource": {"Fn::GetAtt": ["ZipcoSecurityKey", "Arn"]}
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Persona", "Value": "DataEngineer"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoRiskAnalystRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-risk-analyst-${Environment}"},
+        "Description": "MFA-gated read/query role for curated ZIPCO data and governed risk analytics.",
+        "MaxSessionDuration": 14400,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"AWS": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"}},
+              "Action": "sts:AssumeRole",
+              "Condition": {"Bool": {"aws:MultiFactorAuthPresent": "true"}}
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "zipco-risk-analysis",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:ListBucket",
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"},
+                  "Condition": {"StringLike": {"s3:prefix": ["curated/*", "athena/results/*", "risk-engine/*"]}}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:GetBucketLocation",
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                  "Resource": [
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/curated/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/risk-engine/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/athena/results/*"}
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/athena/results/*"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["athena:StartQueryExecution", "athena:StopQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults", "athena:GetWorkGroup", "athena:ListNamedQueries", "athena:GetNamedQuery"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${AthenaWorkGroupName}"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["glue:GetDatabase", "glue:GetDatabases", "glue:GetTable", "glue:GetTables", "glue:GetPartitions"],
+                  "Resource": [
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:catalog"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:database/zipco_*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:table/zipco_*/*"}
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+                  "Resource": {"Fn::GetAtt": ["ZipcoSecurityKey", "Arn"]}
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Persona", "Value": "RiskAnalyst"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoDataStewardRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-data-steward-${Environment}"},
+        "Description": "MFA-gated metadata, quality, classification, and contract stewardship role.",
+        "MaxSessionDuration": 14400,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"AWS": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"}},
+              "Action": "sts:AssumeRole",
+              "Condition": {"Bool": {"aws:MultiFactorAuthPresent": "true"}}
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "zipco-data-stewardship",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": ["glue:GetDatabase", "glue:GetDatabases", "glue:GetTable", "glue:GetTables", "glue:GetPartitions", "glue:GetTags", "glue:TagResource", "glue:UntagResource"],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["lakeformation:GetDataLakeSettings", "lakeformation:ListLFTags", "lakeformation:GetLFTag", "lakeformation:GetResourceLFTags", "lakeformation:SearchDatabasesByLFTags", "lakeformation:SearchTablesByLFTags"],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:ListBucket",
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"},
+                  "Condition": {"StringLike": {"s3:prefix": ["metadata/*", "quality/*", "quarantine/*"]}}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:GetBucketLocation",
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                  "Resource": [
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/metadata/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/quality/*"},
+                    {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/quarantine/*"}
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:PutObject",
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}/metadata/contracts/*"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+                  "Resource": {"Fn::GetAtt": ["ZipcoSecurityKey", "Arn"]}
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Persona", "Value": "DataSteward"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoSecurityAuditorRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-security-auditor-${Environment}"},
+        "Description": "MFA-gated read-only security evidence and compliance audit role.",
+        "MaxSessionDuration": 14400,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"AWS": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"}},
+              "Action": "sts:AssumeRole",
+              "Condition": {"Bool": {"aws:MultiFactorAuthPresent": "true"}}
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "zipco-security-audit-read",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": ["cloudtrail:DescribeTrails", "cloudtrail:GetTrail", "cloudtrail:GetTrailStatus", "cloudtrail:GetEventSelectors", "cloudtrail:LookupEvents", "config:Describe*", "config:Get*", "config:List*", "config:SelectResourceConfig", "access-analyzer:GetAnalyzer", "access-analyzer:GetFinding", "access-analyzer:ListAnalyzers", "access-analyzer:ListFindings", "kms:DescribeKey", "kms:GetKeyPolicy", "kms:GetKeyRotationStatus", "kms:ListAliases", "cloudwatch:DescribeAlarms", "cloudwatch:GetDashboard", "logs:DescribeLogGroups", "logs:StartQuery", "logs:GetQueryResults", "logs:StopQuery"],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:GetBucketLocation", "s3:ListBucket"],
+                  "Resource": {"Fn::GetAtt": ["ZipcoAuditBucket", "Arn"]}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                  "Resource": {"Fn::Sub": "${ZipcoAuditBucket.Arn}/*"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:GetBucketEncryption", "s3:GetBucketPolicy", "s3:GetBucketPublicAccessBlock", "s3:GetBucketVersioning", "s3:GetInventoryConfiguration", "s3:GetLifecycleConfiguration"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucketName}"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["kms:Decrypt", "kms:DescribeKey"],
+                  "Resource": {"Fn::GetAtt": ["ZipcoSecurityKey", "Arn"]}
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Persona", "Value": "SecurityAuditor"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoAccessAnalyzer": {
+      "Type": "AWS::AccessAnalyzer::Analyzer",
+      "Condition": "ProvisionAccessAnalyzer",
+      "Properties": {
+        "AnalyzerName": "zipco-account-external-access",
+        "Type": "ACCOUNT",
+        "Tags": [
+          {"Key": "Project", "Value": "zipco-financial-risk-platform"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoRootUsageMetric": {
+      "Type": "AWS::Logs::MetricFilter",
+      "Properties": {
+        "FilterName": "zipco-root-account-usage",
+        "FilterPattern": "{ ($.userIdentity.type = \"Root\") && ($.userIdentity.invokedBy NOT EXISTS) && ($.eventType != \"AwsServiceEvent\") }",
+        "LogGroupName": {"Ref": "ZipcoAuditLogGroup"},
+        "MetricTransformations": [{"MetricNamespace": "ZIPCO/Security", "MetricName": "RootAccountUsage", "MetricValue": "1", "Unit": "Count"}]
+      }
+    },
+    "ZipcoUnauthorizedApiMetric": {
+      "Type": "AWS::Logs::MetricFilter",
+      "Properties": {
+        "FilterName": "zipco-unauthorized-api-calls",
+        "FilterPattern": "{ ($.errorCode = \"*UnauthorizedOperation\") || ($.errorCode = \"AccessDenied*\") }",
+        "LogGroupName": {"Ref": "ZipcoAuditLogGroup"},
+        "MetricTransformations": [{"MetricNamespace": "ZIPCO/Security", "MetricName": "UnauthorizedApiCalls", "MetricValue": "1", "Unit": "Count"}]
+      }
+    },
+    "ZipcoKmsChangeMetric": {
+      "Type": "AWS::Logs::MetricFilter",
+      "Properties": {
+        "FilterName": "zipco-kms-disable-delete-events",
+        "FilterPattern": "{ ($.eventSource = \"kms.amazonaws.com\") && (($.eventName = \"DisableKey\") || ($.eventName = \"ScheduleKeyDeletion\")) }",
+        "LogGroupName": {"Ref": "ZipcoAuditLogGroup"},
+        "MetricTransformations": [{"MetricNamespace": "ZIPCO/Security", "MetricName": "KmsDestructiveChanges", "MetricValue": "1", "Unit": "Count"}]
+      }
+    },
+    "ZipcoRootUsageAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": "zipco-root-account-usage",
+        "AlarmDescription": "Root credentials were used for a non-service event; investigate immediately.",
+        "ActionsEnabled": true,
+        "Namespace": "ZIPCO/Security",
+        "MetricName": "RootAccountUsage",
+        "Statistic": "Sum",
+        "Period": 300,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 1,
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "TreatMissingData": "notBreaching",
+        "Tags": [{"Key": "Project", "Value": "zipco-financial-risk-platform"}, {"Key": "Environment", "Value": {"Ref": "Environment"}}]
+      }
+    },
+    "ZipcoUnauthorizedApiAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": "zipco-unauthorized-api-calls",
+        "AlarmDescription": "Five or more unauthorized API calls occurred within five minutes.",
+        "ActionsEnabled": true,
+        "Namespace": "ZIPCO/Security",
+        "MetricName": "UnauthorizedApiCalls",
+        "Statistic": "Sum",
+        "Period": 300,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 5,
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "TreatMissingData": "notBreaching",
+        "Tags": [{"Key": "Project", "Value": "zipco-financial-risk-platform"}, {"Key": "Environment", "Value": {"Ref": "Environment"}}]
+      }
+    },
+    "ZipcoKmsChangeAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": "zipco-kms-disable-delete-events",
+        "AlarmDescription": "The governed ZIPCO KMS key was disabled or scheduled for deletion.",
+        "ActionsEnabled": true,
+        "Namespace": "ZIPCO/Security",
+        "MetricName": "KmsDestructiveChanges",
+        "Statistic": "Sum",
+        "Period": 300,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 1,
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "TreatMissingData": "notBreaching",
+        "Tags": [{"Key": "Project", "Value": "zipco-financial-risk-platform"}, {"Key": "Environment", "Value": {"Ref": "Environment"}}]
+      }
+    },
+    "ZipcoSecurityDashboard": {
+      "Type": "AWS::CloudWatch::Dashboard",
+      "Properties": {
+        "DashboardName": "zipco-security-governance",
+        "DashboardBody": {
+          "Fn::Sub": "{\"start\":\"-P7D\",\"periodOverride\":\"inherit\",\"widgets\":[{\"type\":\"text\",\"x\":0,\"y\":0,\"width\":24,\"height\":2,\"properties\":{\"markdown\":\"# ZIPCO Security & Governance\\nCloudTrail audit telemetry, privileged activity, access failures, and KMS control changes.\"}},{\"type\":\"alarm\",\"x\":0,\"y\":2,\"width\":24,\"height\":3,\"properties\":{\"title\":\"Security control alarms\",\"alarms\":[\"${ZipcoRootUsageAlarm.Arn}\",\"${ZipcoUnauthorizedApiAlarm.Arn}\",\"${ZipcoKmsChangeAlarm.Arn}\"]}},{\"type\":\"metric\",\"x\":0,\"y\":5,\"width\":12,\"height\":6,\"properties\":{\"title\":\"Privileged and denied activity\",\"view\":\"timeSeries\",\"region\":\"${AWS::Region}\",\"stat\":\"Sum\",\"period\":300,\"metrics\":[[\"ZIPCO/Security\",\"RootAccountUsage\",{\"label\":\"Root usage\"}],[\"ZIPCO/Security\",\"UnauthorizedApiCalls\",{\"label\":\"Unauthorized API calls\"}],[\"ZIPCO/Security\",\"KmsDestructiveChanges\",{\"label\":\"KMS destructive changes\"}]]}},{\"type\":\"log\",\"x\":12,\"y\":5,\"width\":12,\"height\":6,\"properties\":{\"title\":\"Recent access denials\",\"region\":\"${AWS::Region}\",\"view\":\"table\",\"query\":\"SOURCE '/aws/cloudtrail/zipco-security-audit' | fields @timestamp, userIdentity.arn, eventSource, eventName, errorCode, sourceIPAddress | filter ispresent(errorCode) | sort @timestamp desc | limit 20\"}}]}"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "SecurityKeyArn": {"Value": {"Fn::GetAtt": ["ZipcoSecurityKey", "Arn"]}},
+    "SecurityKeyAlias": {"Value": {"Ref": "ZipcoSecurityKeyAlias"}},
+    "AuditBucketName": {"Value": {"Ref": "ZipcoAuditBucket"}},
+    "AuditTrailName": {"Value": {"Ref": "ZipcoAuditTrail"}},
+    "AuditLogGroupName": {"Value": {"Ref": "ZipcoAuditLogGroup"}},
+    "ConfigRoleArn": {"Value": {"Fn::GetAtt": ["ZipcoConfigRole", "Arn"]}},
+    "CatalogEncryptionRoleArn": {"Value": {"Fn::GetAtt": ["ZipcoCatalogEncryptionRole", "Arn"]}},
+    "DataEngineerRoleArn": {"Value": {"Fn::GetAtt": ["ZipcoDataEngineerRole", "Arn"]}},
+    "RiskAnalystRoleArn": {"Value": {"Fn::GetAtt": ["ZipcoRiskAnalystRole", "Arn"]}},
+    "DataStewardRoleArn": {"Value": {"Fn::GetAtt": ["ZipcoDataStewardRole", "Arn"]}},
+    "SecurityAuditorRoleArn": {"Value": {"Fn::GetAtt": ["ZipcoSecurityAuditorRole", "Arn"]}},
+    "AccessAnalyzerName": {"Value": {"Fn::If": ["ProvisionAccessAnalyzer", "zipco-account-external-access", "EXISTING_ACCOUNT_ANALYZER"]}},
+    "SecurityDashboardName": {"Value": {"Ref": "ZipcoSecurityDashboard"}},
+    "SecurityDashboardUrl": {"Value": {"Fn::Sub": "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards/dashboard/zipco-security-governance"}}
+  }
+}

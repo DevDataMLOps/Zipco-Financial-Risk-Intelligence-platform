@@ -11,7 +11,8 @@
     "name": "zipco-risk-analytics",
     "engine": "Athena engine version 3",
     "enforce_configuration": true,
-    "query_result_encryption": "SSE_S3",
+    "query_result_encryption_verified_baseline": "SSE_S3",
+    "query_result_encryption_phase_5_target": "SSE_KMS with alias/zipco-financial-platform",
     "cloudwatch_metrics": true,
     "bytes_scanned_cutoff_per_query": 524288000
   },

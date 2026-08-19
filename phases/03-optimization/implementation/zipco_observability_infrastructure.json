@@ -7,7 +7,15 @@
       "Type": "String",
       "Default": "dev",
       "AllowedValues": ["dev", "test", "prod"]
+    },
+    "KmsKeyArn": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Optional ZIPCO customer-managed KMS key ARN for the failure-event log group."
     }
+  },
+  "Conditions": {
+    "UseCustomerManagedKms": {"Fn::Not": [{"Fn::Equals": [{"Ref": "KmsKeyArn"}, ""]}]}
   },
   "Resources": {
     "ZipcoBenchmarkDatabase": {
@@ -33,6 +41,7 @@
         "LogGroupName": "/aws/events/zipco-financial-platform/failures",
         "LogGroupClass": "STANDARD",
         "RetentionInDays": 30,
+        "KmsKeyId": {"Fn::If": ["UseCustomerManagedKms", {"Ref": "KmsKeyArn"}, {"Ref": "AWS::NoValue"}]},
         "ResourcePolicyDocument": {
           "Version": "2012-10-17",
           "Statement": [

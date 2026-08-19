@@ -28,6 +28,7 @@ if [[ "$ACTUAL_ACCOUNT" != "$EXPECTED_ACCOUNT" ]]; then
 fi
 
 aws s3api head-bucket --bucket "$BUCKET"
+KMS_KEY_ARN="$(aws kms describe-key --key-id alias/zipco-financial-platform --query 'KeyMetadata.Arn' --output text 2>/dev/null || true)"
 MANIFEST_FILE="$(mktemp)"
 OBJECT_VERIFICATION="$(mktemp)"
 cleanup() {
@@ -47,7 +48,7 @@ for table in customers accounts transactions transaction_categories categorized_
   remote_rows="$(jq -r '.Metadata.rows' <<< "$source_metadata")"
   remote_bytes="$(jq -r '.ContentLength' <<< "$source_metadata")"
   remote_encryption="$(jq -r '.ServerSideEncryption' <<< "$source_metadata")"
-  if [[ "$remote_hash" != "$expected_hash" || "$remote_version" != "2.0.0" || "$remote_rows" != "$expected_rows" || "$remote_bytes" != "$expected_bytes" || "$remote_encryption" != "AES256" ]]; then
+  if [[ "$remote_hash" != "$expected_hash" || "$remote_version" != "2.0.0" || "$remote_rows" != "$expected_rows" || "$remote_bytes" != "$expected_bytes" || ( "$remote_encryption" != "AES256" && "$remote_encryption" != "aws:kms" ) ]]; then
     echo "Source contract verification failed for $table" >&2
     exit 4
   fi
@@ -56,7 +57,6 @@ done
 echo "Uploading Glue ETL script"
 aws s3 cp "$ETL_SCRIPT" "s3://${BUCKET}/glue/scripts/zipco_relational_v2_etl.py" \
   --only-show-errors \
-  --sse AES256 \
   --checksum-algorithm SHA256 \
   --content-type text/x-python \
   --metadata "sha256=$(sha256sum "$ETL_SCRIPT" | awk '{print $1}'),dataset-version=2.0.0"
@@ -65,10 +65,14 @@ echo "Validating CloudFormation template"
 aws cloudformation validate-template --template-body "file://${CFN_TEMPLATE}" >/dev/null
 
 echo "Deploying Glue infrastructure"
+CFN_PARAMETERS=("BucketName=${BUCKET}" "Environment=dev")
+if [[ -n "$KMS_KEY_ARN" && "$KMS_KEY_ARN" != "None" ]]; then
+  CFN_PARAMETERS+=("KmsKeyArn=${KMS_KEY_ARN}")
+fi
 aws cloudformation deploy \
   --stack-name "$STACK_NAME" \
   --template-file "$CFN_TEMPLATE" \
-  --parameter-overrides "BucketName=${BUCKET}" "Environment=dev" \
+  --parameter-overrides "${CFN_PARAMETERS[@]}" \
   --capabilities CAPABILITY_NAMED_IAM \
   --no-fail-on-empty-changeset
 
@@ -198,7 +202,6 @@ jq -s \
 aws s3 cp "${SCRIPT_DIR}/zipco_glue_deployment_verification.json" \
   "s3://${BUCKET}/metadata/contracts/relational_v2/zipco_glue_deployment_verification.json" \
   --only-show-errors \
-  --sse AES256 \
   --checksum-algorithm SHA256 \
   --content-type application/json
 

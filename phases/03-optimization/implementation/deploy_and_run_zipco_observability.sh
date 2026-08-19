@@ -56,6 +56,7 @@ if [[ "$ACTUAL_ACCOUNT" != "$EXPECTED_ACCOUNT" ]]; then
 fi
 
 aws s3api head-bucket --bucket "$BUCKET"
+KMS_KEY_ARN="$(aws kms describe-key --key-id alias/zipco-financial-platform --query 'KeyMetadata.Arn' --output text 2>/dev/null || true)"
 aws athena get-work-group --work-group "$WORKGROUP" >/dev/null
 aws glue get-job --job-name "$GLUE_JOB" >/dev/null
 aws glue get-crawler --name "$GLUE_CRAWLER" >/dev/null
@@ -67,8 +68,8 @@ if ! jq -e --argjson expected "$EXPECTED_SOURCE_TABLES" 'sort == ($expected | so
 fi
 
 echo "Uploading versioned benchmark SQL and monitoring contract"
-aws s3 sync "$BENCHMARK_DIR" "s3://${BUCKET}/performance/sql/v1/" --only-show-errors --sse AES256 --exclude "*" --include "*.sql"
-aws s3 cp "$CONTRACT_FILE" "s3://${BUCKET}/metadata/contracts/relational_v2/performance_contract.json" --only-show-errors --sse AES256 --content-type application/json
+aws s3 sync "$BENCHMARK_DIR" "s3://${BUCKET}/performance/sql/v1/" --only-show-errors --exclude "*" --include "*.sql"
+aws s3 cp "$CONTRACT_FILE" "s3://${BUCKET}/metadata/contracts/relational_v2/performance_contract.json" --only-show-errors --content-type application/json
 
 echo "Deploying CloudWatch dashboard, event monitoring, alarms, and benchmark database"
 aws cloudformation validate-template --template-body "file://${CFN_TEMPLATE}" >/dev/null
@@ -85,10 +86,14 @@ if [[ "$EXISTING_STACK_STATUS" == "ROLLBACK_COMPLETE" ]]; then
   aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
 fi
 
+CFN_PARAMETERS=("Environment=dev")
+if [[ -n "$KMS_KEY_ARN" && "$KMS_KEY_ARN" != "None" ]]; then
+  CFN_PARAMETERS+=("KmsKeyArn=${KMS_KEY_ARN}")
+fi
 aws cloudformation deploy \
   --stack-name "$STACK_NAME" \
   --template-file "$CFN_TEMPLATE" \
-  --parameter-overrides "Environment=dev" \
+  --parameter-overrides "${CFN_PARAMETERS[@]}" \
   --capabilities CAPABILITY_AUTO_EXPAND \
   --no-fail-on-empty-changeset
 
@@ -372,10 +377,10 @@ jq -n \
   }' > "$EVIDENCE_FILE"
 
 EVIDENCE_PREFIX="performance/evidence/run_id=${RUN_ID}"
-aws s3 cp "$REPORT_FILE" "s3://${BUCKET}/${EVIDENCE_PREFIX}/zipco_athena_performance_benchmark.json" --only-show-errors --sse AES256 --content-type application/json
-aws s3 cp "$REPORT_CSV" "s3://${BUCKET}/${EVIDENCE_PREFIX}/zipco_athena_performance_benchmark.csv" --only-show-errors --sse AES256 --content-type text/csv
-aws s3 cp "$EVIDENCE_FILE" "s3://${BUCKET}/${EVIDENCE_PREFIX}/zipco_observability_deployment_verification.json" --only-show-errors --sse AES256 --content-type application/json
-aws s3 cp "$EVIDENCE_FILE" "s3://${BUCKET}/metadata/contracts/relational_v2/zipco_observability_deployment_verification.json" --only-show-errors --sse AES256 --content-type application/json
+aws s3 cp "$REPORT_FILE" "s3://${BUCKET}/${EVIDENCE_PREFIX}/zipco_athena_performance_benchmark.json" --only-show-errors --content-type application/json
+aws s3 cp "$REPORT_CSV" "s3://${BUCKET}/${EVIDENCE_PREFIX}/zipco_athena_performance_benchmark.csv" --only-show-errors --content-type text/csv
+aws s3 cp "$EVIDENCE_FILE" "s3://${BUCKET}/${EVIDENCE_PREFIX}/zipco_observability_deployment_verification.json" --only-show-errors --content-type application/json
+aws s3 cp "$EVIDENCE_FILE" "s3://${BUCKET}/metadata/contracts/relational_v2/zipco_observability_deployment_verification.json" --only-show-errors --content-type application/json
 aws s3api head-object --bucket "$BUCKET" --key "${EVIDENCE_PREFIX}/zipco_observability_deployment_verification.json" >/dev/null
 
 echo

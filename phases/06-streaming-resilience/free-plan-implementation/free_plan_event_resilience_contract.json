@@ -1,0 +1,75 @@
+{
+  "contract_name": "ZIPCO Free-plan Event Processing and Resilience Contract",
+  "contract_version": "1.0.0",
+  "event_schema_version": "2.1.0",
+  "status": "DEPLOYED_RUN_AND_VERIFIED",
+  "region": "us-east-2",
+  "verified_run": {
+    "run_id": "20260821T215343Z-cloudshell",
+    "controls": "PASS (20/20)",
+    "valid_records_curated": "25/25",
+    "expected_invalid_records_quarantined": "3/3",
+    "authoritative_evidence": "s3://zipco-financial-platform-825999268272-us-east-2/streaming-free-plan/evidence/run_id=20260821T215343Z-cloudshell/zipco_free_plan_event_resilience_verification.json"
+  },
+  "deployment_variant": "free-plan-lambda-event-processing",
+  "native_streaming_service": false,
+  "portfolio_claim": "Near-real-time bounded event processing with durable recovery and observability; not Kinesis or Firehose streaming.",
+  "processing_semantics": {
+    "invocation": "synchronous bounded Lambda batches of 1 to 500 records",
+    "guarantee": "at-least-once under operator replay",
+    "ordering": "no cross-invocation ordering guarantee",
+    "duplicate_policy": "transaction_id is the downstream idempotency key",
+    "recovery_point_objective": "the complete accepted invocation batch is written to versioned, SSE-KMS S3 raw storage before validation outputs",
+    "recovery_time_objective": "operator target under 60 minutes after diagnosis; not load-tested"
+  },
+  "event_contract": {
+    "required_fields": {
+      "transaction_id": "non-empty string; idempotency key",
+      "account_id": "non-empty string",
+      "customer_id": "non-empty string",
+      "event_time": "timezone-aware RFC3339 timestamp",
+      "transaction_type": "Deposit | Withdrawal | Transfer",
+      "amount": "decimal > 0 and <= 1000000000",
+      "currency": "three-letter code normalized to uppercase",
+      "schema_version": "2.1.0",
+      "run_id": "non-empty string used for lineage and verification"
+    },
+    "transform_additions": ["ingested_at", "source"],
+    "partition_keys": ["event_year", "event_month", "event_day", "event_hour"]
+  },
+  "s3_paths": {
+    "raw": "streaming-free-plan/raw/ingest_year=YYYY/ingest_month=MM/ingest_day=DD/ingest_hour=HH/run_id=RUN_ID/",
+    "curated": "streaming-free-plan/curated/transactions/event_year=YYYY/event_month=MM/event_day=DD/event_hour=HH/run_id=RUN_ID/",
+    "errors": "streaming-free-plan/errors/error_type=contract_validation/event_year=YYYY/event_month=MM/event_day=DD/event_hour=HH/run_id=RUN_ID/",
+    "evidence": "streaming-free-plan/evidence/run_id=RUN_ID/"
+  },
+  "mandatory_controls": [
+    {"id": "FP-001", "assertion": "CloudFormation stack status is CREATE_COMPLETE or UPDATE_COMPLETE."},
+    {"id": "FP-002", "assertion": "The Lambda event processor state is Active."},
+    {"id": "FP-003", "assertion": "The processor uses Python 3.12."},
+    {"id": "FP-004", "assertion": "The processor timeout is bounded between 60 and 300 seconds."},
+    {"id": "FP-005", "assertion": "The processor enforces event schema version 2.1.0."},
+    {"id": "FP-006", "assertion": "Durable event paths use the ZIPCO customer-managed data key."},
+    {"id": "FP-007", "assertion": "The processor is isolated to the streaming-free-plan S3 prefix."},
+    {"id": "FP-008", "assertion": "Raw S3 contains the complete verification batch."},
+    {"id": "FP-009", "assertion": "Curated S3 contains every expected-valid record."},
+    {"id": "FP-010", "assertion": "Error S3 contains every expected-invalid record."},
+    {"id": "FP-011", "assertion": "Observed raw, curated, and error objects use SSE-KMS."},
+    {"id": "FP-012", "assertion": "Curated objects use event-time year/month/day/hour partitions."},
+    {"id": "FP-013", "assertion": "The CloudWatch dashboard is retrievable."},
+    {"id": "FP-014", "assertion": "Exactly four event-processing metric alarms are deployed."},
+    {"id": "FP-015", "assertion": "Exactly one composite health alarm is deployed."},
+    {"id": "FP-016", "assertion": "Processor logs have 30-day retention and KMS encryption."},
+    {"id": "FP-017", "assertion": "The alert topic uses a rotating customer-managed KMS key."},
+    {"id": "FP-018", "assertion": "Processor S3 writes are prefix-scoped and do not use s3:*."},
+    {"id": "FP-019", "assertion": "Custom metrics use the ZIPCO/FreePlanEvents namespace."},
+    {"id": "FP-020", "assertion": "The publisher passes and replay dry run selects the complete batch."}
+  ],
+  "guardrails": [
+    "The implementation does not claim Kinesis, Firehose, shard ordering, or native streaming deployment.",
+    "Raw data is written before curated and error outputs for every successful invocation.",
+    "Replay defaults to dry run, is capped at 500 records, and requires --execute for mutation.",
+    "The processor logs aggregate batch metadata only, not full transaction payloads.",
+    "This fallback remains separate from the optional paid-plan Firehose reference implementation."
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "artifact_type": "source_labeled_screenshot_transcription",
+  "source_screenshot": "../screenshots/01-free-plan-event-resilience-verified.png",
+  "source_screenshot_sha256": "cdd4e58c5410aac6bd998001ee24d72bf9d291c12499fc1b4ad4a883cc9bab5b",
+  "evidence_status": "TRANSCRIBED_FROM_USER_SUPPLIED_AWS_CONSOLE_OUTPUT",
+  "status": "DEPLOYED_RUN_AND_VERIFIED",
+  "deployment_variant": "FREE_PLAN_LAMBDA_EVENT_PROCESSING",
+  "native_streaming_service": "NOT_CLAIMED",
+  "region": "us-east-2",
+  "account_id": "825999268272",
+  "run_id": "20260821T215343Z-cloudshell",
+  "processor": "zipco-free-plan-event-processor-dev",
+  "controls": {
+    "status": "PASS",
+    "passed": 20,
+    "total": 20
+  },
+  "delivery": {
+    "valid_records_curated": 25,
+    "valid_records_expected": 25,
+    "expected_invalid_records_quarantined": 3,
+    "expected_invalid_records_sent": 3
+  },
+  "recovery": {
+    "encrypted_raw_backup": "ENABLED",
+    "replay_mode": "DRY_RUN",
+    "replay_status": "PASSED",
+    "replay_batch_id": "7541f69059f07525",
+    "function_error": null
+  },
+  "cloudwatch": {
+    "metric_alarms": 4,
+    "composite_alarms": 1,
+    "dashboard_url": "https://us-east-2.console.aws.amazon.com/cloudwatch/home?region=us-east-2#dashboards/dashboard/zipco-financial-platform-free-plan-events-dev"
+  },
+  "authoritative_evidence_uri": "s3://zipco-financial-platform-825999268272-us-east-2/streaming-free-plan/evidence/run_id=20260821T215343Z-cloudshell/zipco_free_plan_event_resilience_verification.json",
+  "provenance_note": "Values were transcribed from the supplied successful CloudShell screenshot. This file is not the machine-generated verifier export; the authoritative 20-control JSON remains at the recorded S3 URI."
+}

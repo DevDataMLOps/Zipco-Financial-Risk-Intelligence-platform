@@ -1,0 +1,493 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Amazon Data Firehose Direct PUT ingestion, Lambda transformation, durable S3 recovery paths, CloudWatch alarms, and operational dashboard for ZIPCO streaming transactions.",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": ["dev", "test", "prod"]
+    },
+    "DataLakeBucketName": {
+      "Type": "String",
+      "Description": "Existing private ZIPCO data-lake bucket."
+    },
+    "TransformArtifactBucketName": {
+      "Type": "String",
+      "Description": "S3 bucket containing the packaged Lambda transformer."
+    },
+    "TransformArtifactObjectKey": {
+      "Type": "String",
+      "Description": "Object key of the Lambda deployment ZIP."
+    },
+    "KmsKeyArn": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Optional ZIPCO customer-managed symmetric KMS key ARN."
+    },
+    "AlertEmail": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Optional email endpoint. AWS requires subscription confirmation."
+    },
+    "FirehoseBufferIntervalSeconds": {
+      "Type": "Number",
+      "Default": 60,
+      "MinValue": 60,
+      "MaxValue": 900
+    },
+    "FirehoseBufferSizeMBs": {
+      "Type": "Number",
+      "Default": 64,
+      "MinValue": 64,
+      "MaxValue": 128
+    }
+  },
+  "Conditions": {
+    "UseCustomerManagedKms": {"Fn::Not": [{"Fn::Equals": [{"Ref": "KmsKeyArn"}, ""]}]},
+    "HasAlertEmail": {"Fn::Not": [{"Fn::Equals": [{"Ref": "AlertEmail"}, ""]}]}
+  },
+  "Resources": {
+    "ZipcoTransformLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "LogGroupName": {"Fn::Sub": "/aws/lambda/zipco-stream-transform-${Environment}"},
+        "LogGroupClass": "STANDARD",
+        "RetentionInDays": 30,
+        "KmsKeyId": {"Fn::If": ["UseCustomerManagedKms", {"Ref": "KmsKeyArn"}, {"Ref": "AWS::NoValue"}]},
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoFirehoseLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "LogGroupName": {"Fn::Sub": "/aws/firehose/zipco-streaming-${Environment}"},
+        "LogGroupClass": "STANDARD",
+        "RetentionInDays": 30,
+        "KmsKeyId": {"Fn::If": ["UseCustomerManagedKms", {"Ref": "KmsKeyArn"}, {"Ref": "AWS::NoValue"}]},
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoFirehoseDeliveryLogStream": {
+      "Type": "AWS::Logs::LogStream",
+      "Properties": {
+        "LogGroupName": {"Ref": "ZipcoFirehoseLogGroup"},
+        "LogStreamName": "S3Delivery"
+      }
+    },
+    "ZipcoFirehoseBackupLogStream": {
+      "Type": "AWS::Logs::LogStream",
+      "Properties": {
+        "LogGroupName": {"Ref": "ZipcoFirehoseLogGroup"},
+        "LogStreamName": "S3Backup"
+      }
+    },
+    "ZipcoTransformRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-stream-transform-${Environment}"},
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"Service": "lambda.amazonaws.com"},
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "WriteSanitizedTransformLogs",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+                  "Resource": {"Fn::Sub": "${ZipcoTransformLogGroup.Arn}:*"}
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoStreamTransformFunction": {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": "ZipcoTransformLogGroup",
+      "Properties": {
+        "FunctionName": {"Fn::Sub": "zipco-stream-transform-${Environment}"},
+        "Description": "Validates, normalizes, and supplies dynamic partition keys for ZIPCO Firehose records.",
+        "Runtime": "python3.12",
+        "Architectures": ["arm64"],
+        "Handler": "firehose_transform.handler",
+        "MemorySize": 256,
+        "Timeout": 60,
+        "Role": {"Fn::GetAtt": ["ZipcoTransformRole", "Arn"]},
+        "Code": {
+          "S3Bucket": {"Ref": "TransformArtifactBucketName"},
+          "S3Key": {"Ref": "TransformArtifactObjectKey"}
+        },
+        "Environment": {
+          "Variables": {
+            "EXPECTED_SCHEMA_VERSION": "2.1.0"
+          }
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "DataClassification", "Value": "internal"},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoFirehoseRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-stream-firehose-${Environment}"},
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"Service": "firehose.amazonaws.com"},
+              "Action": "sts:AssumeRole",
+              "Condition": {"StringEquals": {"sts:ExternalId": {"Ref": "AWS::AccountId"}}}
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "ReadSourceTransformAndDeliver",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "InvokeTransformer",
+                  "Effect": "Allow",
+                  "Action": ["lambda:InvokeFunction", "lambda:GetFunctionConfiguration"],
+                  "Resource": {"Fn::GetAtt": ["ZipcoStreamTransformFunction", "Arn"]}
+                },
+                {
+                  "Sid": "InspectDestinationBucket",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataLakeBucketName}"}
+                },
+                {
+                  "Sid": "WriteDeliveryRecoveryAndErrors",
+                  "Effect": "Allow",
+                  "Action": ["s3:AbortMultipartUpload", "s3:GetObject", "s3:ListMultipartUploadParts", "s3:PutObject"],
+                  "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataLakeBucketName}/streaming/*"}
+                },
+                {
+                  "Sid": "UseDataKeyThroughRegionalServices",
+                  "Effect": "Allow",
+                  "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:ReEncrypt*", "kms:DescribeKey"],
+                  "Resource": {"Fn::If": ["UseCustomerManagedKms", {"Ref": "KmsKeyArn"}, "*"]},
+                  "Condition": {
+                    "StringLike": {
+                      "kms:ViaService": [
+                        {"Fn::Sub": "s3.${AWS::Region}.amazonaws.com"},
+                        {"Fn::Sub": "firehose.${AWS::Region}.amazonaws.com"}
+                      ]
+                    }
+                  }
+                },
+                {
+                  "Sid": "WriteFirehoseLogs",
+                  "Effect": "Allow",
+                  "Action": ["logs:PutLogEvents"],
+                  "Resource": {"Fn::Sub": "${ZipcoFirehoseLogGroup.Arn}:log-stream:*"}
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoFirehoseInvokePermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {"Ref": "ZipcoStreamTransformFunction"},
+        "Principal": "firehose.amazonaws.com",
+        "SourceAccount": {"Ref": "AWS::AccountId"},
+        "SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:firehose:${AWS::Region}:${AWS::AccountId}:deliverystream/zipco-streaming-transactions-${Environment}"}
+      }
+    },
+    "ZipcoTransactionDeliveryStream": {
+      "Type": "AWS::KinesisFirehose::DeliveryStream",
+      "DependsOn": [
+        "ZipcoFirehoseInvokePermission",
+        "ZipcoFirehoseDeliveryLogStream",
+        "ZipcoFirehoseBackupLogStream"
+      ],
+      "Properties": {
+        "DeliveryStreamName": {"Fn::Sub": "zipco-streaming-transactions-${Environment}"},
+        "DeliveryStreamType": "DirectPut",
+        "DeliveryStreamEncryptionConfigurationInput": {
+          "KeyType": "AWS_OWNED_CMK"
+        },
+        "ExtendedS3DestinationConfiguration": {
+          "BucketARN": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataLakeBucketName}"},
+          "RoleARN": {"Fn::GetAtt": ["ZipcoFirehoseRole", "Arn"]},
+          "Prefix": "streaming/curated/transactions/event_year=!{partitionKeyFromLambda:event_year}/event_month=!{partitionKeyFromLambda:event_month}/event_day=!{partitionKeyFromLambda:event_day}/event_hour=!{partitionKeyFromLambda:event_hour}/",
+          "ErrorOutputPrefix": "streaming/errors/error_type=!{firehose:error-output-type}/event_year=!{timestamp:yyyy}/event_month=!{timestamp:MM}/event_day=!{timestamp:dd}/event_hour=!{timestamp:HH}/",
+          "BufferingHints": {
+            "IntervalInSeconds": {"Ref": "FirehoseBufferIntervalSeconds"},
+            "SizeInMBs": {"Ref": "FirehoseBufferSizeMBs"}
+          },
+          "CompressionFormat": "GZIP",
+          "EncryptionConfiguration": {
+            "KMSEncryptionConfig": {"Fn::If": ["UseCustomerManagedKms", {"AWSKMSKeyARN": {"Ref": "KmsKeyArn"}}, {"Ref": "AWS::NoValue"}]},
+            "NoEncryptionConfig": {"Fn::If": ["UseCustomerManagedKms", {"Ref": "AWS::NoValue"}, "NoEncryption"]}
+          },
+          "CloudWatchLoggingOptions": {
+            "Enabled": true,
+            "LogGroupName": {"Ref": "ZipcoFirehoseLogGroup"},
+            "LogStreamName": {"Ref": "ZipcoFirehoseDeliveryLogStream"}
+          },
+          "ProcessingConfiguration": {
+            "Enabled": true,
+            "Processors": [
+              {
+                "Type": "Lambda",
+                "Parameters": [
+                  {"ParameterName": "LambdaArn", "ParameterValue": {"Fn::GetAtt": ["ZipcoStreamTransformFunction", "Arn"]}},
+                  {"ParameterName": "NumberOfRetries", "ParameterValue": "3"},
+                  {"ParameterName": "BufferSizeInMBs", "ParameterValue": "1"},
+                  {"ParameterName": "BufferIntervalInSeconds", "ParameterValue": "60"}
+                ]
+              }
+            ]
+          },
+          "DynamicPartitioningConfiguration": {
+            "Enabled": true,
+            "RetryOptions": {"DurationInSeconds": 300}
+          },
+          "S3BackupMode": "Enabled",
+          "S3BackupConfiguration": {
+            "BucketARN": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataLakeBucketName}"},
+            "RoleARN": {"Fn::GetAtt": ["ZipcoFirehoseRole", "Arn"]},
+            "Prefix": "streaming/raw/event_year=!{timestamp:yyyy}/event_month=!{timestamp:MM}/event_day=!{timestamp:dd}/event_hour=!{timestamp:HH}/",
+            "BufferingHints": {"IntervalInSeconds": 60, "SizeInMBs": 5},
+            "CompressionFormat": "GZIP",
+            "EncryptionConfiguration": {
+              "KMSEncryptionConfig": {"Fn::If": ["UseCustomerManagedKms", {"AWSKMSKeyARN": {"Ref": "KmsKeyArn"}}, {"Ref": "AWS::NoValue"}]},
+              "NoEncryptionConfig": {"Fn::If": ["UseCustomerManagedKms", {"Ref": "AWS::NoValue"}, "NoEncryption"]}
+            },
+            "CloudWatchLoggingOptions": {
+              "Enabled": true,
+              "LogGroupName": {"Ref": "ZipcoFirehoseLogGroup"},
+              "LogStreamName": {"Ref": "ZipcoFirehoseBackupLogStream"}
+            }
+          }
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "DataClassification", "Value": "internal"},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoStreamingAlertKey": {
+      "Type": "AWS::KMS::Key",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "Description": "Customer-managed key for ZIPCO streaming alarm notifications.",
+        "EnableKeyRotation": true,
+        "KeySpec": "SYMMETRIC_DEFAULT",
+        "KeyUsage": "ENCRYPT_DECRYPT",
+        "PendingWindowInDays": 30,
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "EnableAccountAdministration",
+              "Effect": "Allow",
+              "Principal": {"AWS": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"}},
+              "Action": "kms:*",
+              "Resource": "*"
+            },
+            {
+              "Sid": "AllowCloudWatchAlarmPublication",
+              "Effect": "Allow",
+              "Principal": {"Service": "cloudwatch.amazonaws.com"},
+              "Action": ["kms:Decrypt", "kms:GenerateDataKey*"],
+              "Resource": "*",
+              "Condition": {
+                "StringEquals": {"aws:SourceAccount": {"Ref": "AWS::AccountId"}},
+                "ArnLike": {"aws:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:zipco-stream-*"}}
+              }
+            }
+          ]
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoStreamingAlertKeyAlias": {
+      "Type": "AWS::KMS::Alias",
+      "Properties": {
+        "AliasName": {"Fn::Sub": "alias/zipco-streaming-alerts-${Environment}"},
+        "TargetKeyId": {"Ref": "ZipcoStreamingAlertKey"}
+      }
+    },
+    "ZipcoStreamingAlertTopic": {
+      "Type": "AWS::SNS::Topic",
+      "Properties": {
+        "TopicName": {"Fn::Sub": "zipco-streaming-alerts-${Environment}"},
+        "DisplayName": "ZIPCO streaming alerts",
+        "KmsMasterKeyId": {"Fn::GetAtt": ["ZipcoStreamingAlertKey", "Arn"]},
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoStreamingEmailSubscription": {
+      "Type": "AWS::SNS::Subscription",
+      "Condition": "HasAlertEmail",
+      "Properties": {
+        "Endpoint": {"Ref": "AlertEmail"},
+        "Protocol": "email",
+        "TopicArn": {"Ref": "ZipcoStreamingAlertTopic"}
+      }
+    },
+    "ZipcoFirehoseDeliveryFailureAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": {"Fn::Sub": "zipco-stream-firehose-delivery-failures-${Environment}"},
+        "AlarmDescription": "Amazon Data Firehose failed to deliver records to the curated S3 destination.",
+        "Namespace": "AWS/Firehose",
+        "MetricName": "DeliveryToS3.Success",
+        "Dimensions": [{"Name": "DeliveryStreamName", "Value": {"Ref": "ZipcoTransactionDeliveryStream"}}],
+        "Statistic": "Minimum",
+        "Period": 60,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 1,
+        "ComparisonOperator": "LessThanThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "ZipcoStreamingAlertTopic"}],
+        "OKActions": [{"Ref": "ZipcoStreamingAlertTopic"}]
+      }
+    },
+    "ZipcoFirehoseFreshnessAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": {"Fn::Sub": "zipco-stream-firehose-data-freshness-${Environment}"},
+        "AlarmDescription": "Oldest buffered record has exceeded the 15-minute Firehose limit.",
+        "Namespace": "AWS/Firehose",
+        "MetricName": "DeliveryToS3.DataFreshness",
+        "Dimensions": [{"Name": "DeliveryStreamName", "Value": {"Ref": "ZipcoTransactionDeliveryStream"}}],
+        "Statistic": "Maximum",
+        "Period": 60,
+        "EvaluationPeriods": 3,
+        "DatapointsToAlarm": 3,
+        "Threshold": 900,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "ZipcoStreamingAlertTopic"}],
+        "OKActions": [{"Ref": "ZipcoStreamingAlertTopic"}]
+      }
+    },
+    "ZipcoFirehoseThrottleAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": {"Fn::Sub": "zipco-stream-firehose-throttled-records-${Environment}"},
+        "AlarmDescription": "Amazon Data Firehose reported throttled records.",
+        "Namespace": "AWS/Firehose",
+        "MetricName": "ThrottledRecords",
+        "Dimensions": [{"Name": "DeliveryStreamName", "Value": {"Ref": "ZipcoTransactionDeliveryStream"}}],
+        "Statistic": "Sum",
+        "Period": 60,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 0,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "ZipcoStreamingAlertTopic"}],
+        "OKActions": [{"Ref": "ZipcoStreamingAlertTopic"}]
+      }
+    },
+    "ZipcoTransformErrorAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": {"Fn::Sub": "zipco-stream-transform-errors-${Environment}"},
+        "AlarmDescription": "The Firehose Lambda transformer raised an invocation-level error.",
+        "Namespace": "AWS/Lambda",
+        "MetricName": "Errors",
+        "Dimensions": [{"Name": "FunctionName", "Value": {"Ref": "ZipcoStreamTransformFunction"}}],
+        "Statistic": "Sum",
+        "Period": 60,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 0,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "ZipcoStreamingAlertTopic"}],
+        "OKActions": [{"Ref": "ZipcoStreamingAlertTopic"}]
+      }
+    },
+    "ZipcoStreamingHealthAlarm": {
+      "Type": "AWS::CloudWatch::CompositeAlarm",
+      "Properties": {
+        "AlarmName": {"Fn::Sub": "zipco-stream-health-${Environment}"},
+        "AlarmDescription": "Composite health state for the ZIPCO streaming delivery path.",
+        "AlarmRule": {
+          "Fn::Sub": "ALARM(\"${ZipcoFirehoseDeliveryFailureAlarm}\") OR ALARM(\"${ZipcoFirehoseFreshnessAlarm}\") OR ALARM(\"${ZipcoFirehoseThrottleAlarm}\") OR ALARM(\"${ZipcoTransformErrorAlarm}\")"
+        },
+        "AlarmActions": [{"Ref": "ZipcoStreamingAlertTopic"}],
+        "OKActions": [{"Ref": "ZipcoStreamingAlertTopic"}]
+      }
+    },
+    "ZipcoStreamingDashboard": {
+      "Type": "AWS::CloudWatch::Dashboard",
+      "Properties": {
+        "DashboardName": {"Fn::Sub": "zipco-financial-platform-streaming-${Environment}"},
+        "DashboardBody": {
+          "Fn::Sub": "{\"start\":\"-PT6H\",\"periodOverride\":\"inherit\",\"widgets\":[{\"type\":\"text\",\"x\":0,\"y\":0,\"width\":24,\"height\":3,\"properties\":{\"markdown\":\"# ZIPCO Streaming and Resilience\\nFirehose Direct PUT → Lambda → encrypted raw, curated, and error prefixes. Alarms report transport health; business-invalid records are quarantined by design.\"}},{\"type\":\"metric\",\"x\":0,\"y\":3,\"width\":12,\"height\":6,\"properties\":{\"title\":\"Firehose Direct PUT ingestion\",\"region\":\"${AWS::Region}\",\"view\":\"timeSeries\",\"metrics\":[[\"AWS/Firehose\",\"IncomingRecords\",\"DeliveryStreamName\",\"${ZipcoTransactionDeliveryStream}\",{\"stat\":\"Sum\"}],[\".\",\"IncomingBytes\",\".\",\".\",{\"stat\":\"Sum\",\"yAxis\":\"right\"}]]}},{\"type\":\"metric\",\"x\":12,\"y\":3,\"width\":12,\"height\":6,\"properties\":{\"title\":\"Firehose delivery and backup\",\"region\":\"${AWS::Region}\",\"view\":\"timeSeries\",\"metrics\":[[\"AWS/Firehose\",\"DeliveryToS3.Records\",\"DeliveryStreamName\",\"${ZipcoTransactionDeliveryStream}\",{\"stat\":\"Sum\"}],[\".\",\"BackupToS3.Records\",\".\",\".\",{\"stat\":\"Sum\"}],[\".\",\"DeliveryToS3.Success\",\".\",\".\",{\"stat\":\"Minimum\"}]]}},{\"type\":\"metric\",\"x\":0,\"y\":9,\"width\":12,\"height\":6,\"properties\":{\"title\":\"Freshness and throttling\",\"region\":\"${AWS::Region}\",\"view\":\"timeSeries\",\"metrics\":[[\"AWS/Firehose\",\"DeliveryToS3.DataFreshness\",\"DeliveryStreamName\",\"${ZipcoTransactionDeliveryStream}\",{\"stat\":\"Maximum\"}],[\".\",\"ThrottledRecords\",\".\",\".\",{\"stat\":\"Sum\"}]]}},{\"type\":\"metric\",\"x\":12,\"y\":9,\"width\":12,\"height\":6,\"properties\":{\"title\":\"Lambda transform\",\"region\":\"${AWS::Region}\",\"view\":\"timeSeries\",\"metrics\":[[\"AWS/Lambda\",\"Invocations\",\"FunctionName\",\"${ZipcoStreamTransformFunction}\",{\"stat\":\"Sum\"}],[\".\",\"Errors\",\".\",\".\",{\"stat\":\"Sum\"}],[\".\",\"Duration\",\".\",\".\",{\"stat\":\"Average\"}]]}},{\"type\":\"alarm\",\"x\":0,\"y\":15,\"width\":24,\"height\":5,\"properties\":{\"title\":\"Streaming health alarms\",\"alarms\":[\"${ZipcoFirehoseDeliveryFailureAlarm.Arn}\",\"${ZipcoFirehoseFreshnessAlarm.Arn}\",\"${ZipcoFirehoseThrottleAlarm.Arn}\",\"${ZipcoTransformErrorAlarm.Arn}\",\"${ZipcoStreamingHealthAlarm.Arn}\"]}},{\"type\":\"log\",\"x\":0,\"y\":20,\"width\":24,\"height\":6,\"properties\":{\"title\":\"Transformer batch outcomes\",\"region\":\"${AWS::Region}\",\"view\":\"table\",\"query\":\"SOURCE '${ZipcoTransformLogGroup}' | fields @timestamp, @message | filter @message like /zipco_stream_batch_processed/ | sort @timestamp desc | limit 50\"}}]}"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "FirehoseDeliveryStreamName": {"Value": {"Ref": "ZipcoTransactionDeliveryStream"}},
+    "FirehoseDeliveryStreamArn": {"Value": {"Fn::GetAtt": ["ZipcoTransactionDeliveryStream", "Arn"]}},
+    "TransformFunctionName": {"Value": {"Ref": "ZipcoStreamTransformFunction"}},
+    "DashboardName": {"Value": {"Ref": "ZipcoStreamingDashboard"}},
+    "AlertTopicArn": {"Value": {"Ref": "ZipcoStreamingAlertTopic"}},
+    "AlertKeyArn": {"Value": {"Fn::GetAtt": ["ZipcoStreamingAlertKey", "Arn"]}},
+    "CuratedPrefix": {"Value": {"Fn::Sub": "s3://${DataLakeBucketName}/streaming/curated/"}},
+    "RawBackupPrefix": {"Value": {"Fn::Sub": "s3://${DataLakeBucketName}/streaming/raw/"}},
+    "ErrorPrefix": {"Value": {"Fn::Sub": "s3://${DataLakeBucketName}/streaming/errors/"}}
+  }
+}

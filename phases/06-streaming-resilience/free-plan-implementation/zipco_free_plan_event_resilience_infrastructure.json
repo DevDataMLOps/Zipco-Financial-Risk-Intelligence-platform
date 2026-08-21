@@ -1,0 +1,314 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Free-plan-compatible ZIPCO Lambda event processing, encrypted S3 recovery paths, CloudWatch alarms, and operational dashboard.",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": ["dev", "test", "prod"]
+    },
+    "DataLakeBucketName": {
+      "Type": "String",
+      "Description": "Existing private ZIPCO data-lake bucket."
+    },
+    "ProcessorArtifactBucketName": {
+      "Type": "String",
+      "Description": "S3 bucket containing the packaged Lambda processor."
+    },
+    "ProcessorArtifactObjectKey": {
+      "Type": "String",
+      "Description": "Object key of the Lambda deployment ZIP."
+    },
+    "KmsKeyArn": {
+      "Type": "String",
+      "Description": "ZIPCO customer-managed symmetric KMS key ARN."
+    },
+    "AlertEmail": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Optional approved email endpoint. AWS requires subscription confirmation."
+    }
+  },
+  "Conditions": {
+    "HasAlertEmail": {"Fn::Not": [{"Fn::Equals": [{"Ref": "AlertEmail"}, ""]}]}
+  },
+  "Resources": {
+    "ZipcoFreePlanProcessorLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "LogGroupName": {"Fn::Sub": "/aws/lambda/zipco-free-plan-event-processor-${Environment}"},
+        "LogGroupClass": "STANDARD",
+        "RetentionInDays": 30,
+        "KmsKeyId": {"Ref": "KmsKeyArn"},
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoFreePlanProcessorRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {"Fn::Sub": "zipco-free-plan-event-processor-${Environment}"},
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+        },
+        "Policies": [{
+          "PolicyName": "WriteGovernedEventPathsAndMetrics",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "WriteSanitizedLogs",
+                "Effect": "Allow",
+                "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+                "Resource": {"Fn::Sub": "${ZipcoFreePlanProcessorLogGroup.Arn}:*"}
+              },
+              {
+                "Sid": "InspectDataLake",
+                "Effect": "Allow",
+                "Action": ["s3:GetBucketLocation", "s3:ListBucket"],
+                "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataLakeBucketName}"},
+                "Condition": {"StringLike": {"s3:prefix": ["streaming-free-plan/*"]}}
+              },
+              {
+                "Sid": "ReadWriteFreePlanEventPaths",
+                "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:PutObject"],
+                "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${DataLakeBucketName}/streaming-free-plan/*"}
+              },
+              {
+                "Sid": "UseDataLakeKeyThroughS3",
+                "Effect": "Allow",
+                "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:ReEncrypt*", "kms:DescribeKey"],
+                "Resource": {"Ref": "KmsKeyArn"},
+                "Condition": {"StringEquals": {"kms:ViaService": {"Fn::Sub": "s3.${AWS::Region}.amazonaws.com"}}}
+              },
+              {
+                "Sid": "PublishBoundedOperationalMetrics",
+                "Effect": "Allow",
+                "Action": "cloudwatch:PutMetricData",
+                "Resource": "*",
+                "Condition": {"StringEquals": {"cloudwatch:namespace": "ZIPCO/FreePlanEvents"}}
+              }
+            ]
+          }
+        }],
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoFreePlanEventProcessor": {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": "ZipcoFreePlanProcessorLogGroup",
+      "Properties": {
+        "FunctionName": {"Fn::Sub": "zipco-free-plan-event-processor-${Environment}"},
+        "Description": "Processes bounded ZIPCO event batches into encrypted raw, curated, and error S3 paths.",
+        "Runtime": "python3.12",
+        "Architectures": ["arm64"],
+        "Handler": "lambda_event_processor.handler",
+        "MemorySize": 256,
+        "Timeout": 120,
+        "Role": {"Fn::GetAtt": ["ZipcoFreePlanProcessorRole", "Arn"]},
+        "Code": {
+          "S3Bucket": {"Ref": "ProcessorArtifactBucketName"},
+          "S3Key": {"Ref": "ProcessorArtifactObjectKey"}
+        },
+        "Environment": {
+          "Variables": {
+            "DATA_BUCKET": {"Ref": "DataLakeBucketName"},
+            "KMS_KEY_ARN": {"Ref": "KmsKeyArn"},
+            "EXPECTED_SCHEMA_VERSION": "2.1.0",
+            "METRIC_NAMESPACE": "ZIPCO/FreePlanEvents",
+            "PREFIX_ROOT": "streaming-free-plan"
+          }
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "DataClassification", "Value": "internal"},
+          {"Key": "DeploymentVariant", "Value": "free-plan-event-processing"},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoFreePlanAlertKey": {
+      "Type": "AWS::KMS::Key",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "Description": "Customer-managed key for ZIPCO Free-plan event-processing alarms.",
+        "EnableKeyRotation": true,
+        "KeySpec": "SYMMETRIC_DEFAULT",
+        "KeyUsage": "ENCRYPT_DECRYPT",
+        "PendingWindowInDays": 30,
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "EnableAccountAdministration",
+              "Effect": "Allow",
+              "Principal": {"AWS": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"}},
+              "Action": "kms:*",
+              "Resource": "*"
+            },
+            {
+              "Sid": "AllowCloudWatchAlarmPublication",
+              "Effect": "Allow",
+              "Principal": {"Service": "cloudwatch.amazonaws.com"},
+              "Action": ["kms:Decrypt", "kms:GenerateDataKey*"],
+              "Resource": "*",
+              "Condition": {
+                "StringEquals": {"aws:SourceAccount": {"Ref": "AWS::AccountId"}},
+                "ArnLike": {"aws:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:zipco-free-plan-event-*"}}
+              }
+            }
+          ]
+        },
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoFreePlanAlertKeyAlias": {
+      "Type": "AWS::KMS::Alias",
+      "Properties": {
+        "AliasName": {"Fn::Sub": "alias/zipco-free-plan-event-alerts-${Environment}"},
+        "TargetKeyId": {"Ref": "ZipcoFreePlanAlertKey"}
+      }
+    },
+    "ZipcoFreePlanAlertTopic": {
+      "Type": "AWS::SNS::Topic",
+      "Properties": {
+        "TopicName": {"Fn::Sub": "zipco-free-plan-event-alerts-${Environment}"},
+        "DisplayName": "ZIPCO Free-plan event alerts",
+        "KmsMasterKeyId": {"Fn::GetAtt": ["ZipcoFreePlanAlertKey", "Arn"]},
+        "Tags": [
+          {"Key": "Project", "Value": "ZIPCO-Financial-Risk-Intelligence"},
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "ZipcoFreePlanEmailSubscription": {
+      "Type": "AWS::SNS::Subscription",
+      "Condition": "HasAlertEmail",
+      "Properties": {"Endpoint": {"Ref": "AlertEmail"}, "Protocol": "email", "TopicArn": {"Ref": "ZipcoFreePlanAlertTopic"}}
+    },
+    "ZipcoFreePlanProcessorErrorAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": {"Fn::Sub": "zipco-free-plan-event-processor-errors-${Environment}"},
+        "AlarmDescription": "The Free-plan event processor raised an invocation error.",
+        "Namespace": "AWS/Lambda",
+        "MetricName": "Errors",
+        "Dimensions": [{"Name": "FunctionName", "Value": {"Ref": "ZipcoFreePlanEventProcessor"}}],
+        "Statistic": "Sum",
+        "Period": 60,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 0,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "ZipcoFreePlanAlertTopic"}],
+        "OKActions": [{"Ref": "ZipcoFreePlanAlertTopic"}]
+      }
+    },
+    "ZipcoFreePlanProcessorThrottleAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": {"Fn::Sub": "zipco-free-plan-event-processor-throttles-${Environment}"},
+        "AlarmDescription": "The Free-plan event processor was throttled.",
+        "Namespace": "AWS/Lambda",
+        "MetricName": "Throttles",
+        "Dimensions": [{"Name": "FunctionName", "Value": {"Ref": "ZipcoFreePlanEventProcessor"}}],
+        "Statistic": "Sum",
+        "Period": 60,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 0,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "ZipcoFreePlanAlertTopic"}],
+        "OKActions": [{"Ref": "ZipcoFreePlanAlertTopic"}]
+      }
+    },
+    "ZipcoFreePlanProcessorDurationAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": {"Fn::Sub": "zipco-free-plan-event-processor-duration-${Environment}"},
+        "AlarmDescription": "The Free-plan event processor exceeded the one-minute operational target.",
+        "Namespace": "AWS/Lambda",
+        "MetricName": "Duration",
+        "Dimensions": [{"Name": "FunctionName", "Value": {"Ref": "ZipcoFreePlanEventProcessor"}}],
+        "Statistic": "Maximum",
+        "Period": 60,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 60000,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "ZipcoFreePlanAlertTopic"}],
+        "OKActions": [{"Ref": "ZipcoFreePlanAlertTopic"}]
+      }
+    },
+    "ZipcoFreePlanBatchFailureAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": {"Fn::Sub": "zipco-free-plan-event-batch-failures-${Environment}"},
+        "AlarmDescription": "The event processor reported a batch-level failure.",
+        "Namespace": "ZIPCO/FreePlanEvents",
+        "MetricName": "BatchFailures",
+        "Dimensions": [{"Name": "FunctionName", "Value": {"Ref": "ZipcoFreePlanEventProcessor"}}],
+        "Statistic": "Sum",
+        "Period": 60,
+        "EvaluationPeriods": 1,
+        "DatapointsToAlarm": 1,
+        "Threshold": 0,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "ZipcoFreePlanAlertTopic"}],
+        "OKActions": [{"Ref": "ZipcoFreePlanAlertTopic"}]
+      }
+    },
+    "ZipcoFreePlanEventHealthAlarm": {
+      "Type": "AWS::CloudWatch::CompositeAlarm",
+      "Properties": {
+        "AlarmName": {"Fn::Sub": "zipco-free-plan-event-health-${Environment}"},
+        "AlarmDescription": "Composite health state for the ZIPCO Free-plan event-processing path.",
+        "AlarmRule": {"Fn::Sub": "ALARM(\"${ZipcoFreePlanProcessorErrorAlarm}\") OR ALARM(\"${ZipcoFreePlanProcessorThrottleAlarm}\") OR ALARM(\"${ZipcoFreePlanProcessorDurationAlarm}\") OR ALARM(\"${ZipcoFreePlanBatchFailureAlarm}\")"},
+        "AlarmActions": [{"Ref": "ZipcoFreePlanAlertTopic"}],
+        "OKActions": [{"Ref": "ZipcoFreePlanAlertTopic"}]
+      }
+    },
+    "ZipcoFreePlanEventDashboard": {
+      "Type": "AWS::CloudWatch::Dashboard",
+      "Properties": {
+        "DashboardName": {"Fn::Sub": "zipco-financial-platform-free-plan-events-${Environment}"},
+        "DashboardBody": {
+          "Fn::Sub": "{\"start\":\"-PT6H\",\"periodOverride\":\"inherit\",\"widgets\":[{\"type\":\"text\",\"x\":0,\"y\":0,\"width\":24,\"height\":3,\"properties\":{\"markdown\":\"# ZIPCO Free-plan Event Processing and Resilience\\nCloudShell publisher → Lambda validation → encrypted S3 raw, curated, and error paths. This is event processing, not a native managed stream.\"}},{\"type\":\"metric\",\"x\":0,\"y\":3,\"width\":12,\"height\":6,\"properties\":{\"title\":\"Event outcomes\",\"region\":\"${AWS::Region}\",\"view\":\"timeSeries\",\"metrics\":[[\"ZIPCO/FreePlanEvents\",\"AcceptedRecords\",\"FunctionName\",\"${ZipcoFreePlanEventProcessor}\",{\"stat\":\"Sum\"}],[\".\",\"RejectedRecords\",\".\",\".\",{\"stat\":\"Sum\"}],[\".\",\"BatchFailures\",\".\",\".\",{\"stat\":\"Sum\"}]]}},{\"type\":\"metric\",\"x\":12,\"y\":3,\"width\":12,\"height\":6,\"properties\":{\"title\":\"Lambda health\",\"region\":\"${AWS::Region}\",\"view\":\"timeSeries\",\"metrics\":[[\"AWS/Lambda\",\"Invocations\",\"FunctionName\",\"${ZipcoFreePlanEventProcessor}\",{\"stat\":\"Sum\"}],[\".\",\"Errors\",\".\",\".\",{\"stat\":\"Sum\"}],[\".\",\"Throttles\",\".\",\".\",{\"stat\":\"Sum\"}],[\".\",\"Duration\",\".\",\".\",{\"stat\":\"Maximum\",\"yAxis\":\"right\"}]]}},{\"type\":\"alarm\",\"x\":0,\"y\":9,\"width\":24,\"height\":5,\"properties\":{\"title\":\"Event-processing health alarms\",\"alarms\":[\"${ZipcoFreePlanProcessorErrorAlarm.Arn}\",\"${ZipcoFreePlanProcessorThrottleAlarm.Arn}\",\"${ZipcoFreePlanProcessorDurationAlarm.Arn}\",\"${ZipcoFreePlanBatchFailureAlarm.Arn}\",\"${ZipcoFreePlanEventHealthAlarm.Arn}\"]}},{\"type\":\"log\",\"x\":0,\"y\":14,\"width\":24,\"height\":6,\"properties\":{\"title\":\"Sanitized batch outcomes\",\"region\":\"${AWS::Region}\",\"view\":\"table\",\"query\":\"SOURCE '${ZipcoFreePlanProcessorLogGroup}' | fields @timestamp, @message | filter @message like /zipco_free_plan_batch_processed/ | sort @timestamp desc | limit 50\"}}]}"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ProcessorFunctionName": {"Value": {"Ref": "ZipcoFreePlanEventProcessor"}},
+    "ProcessorRoleName": {"Value": {"Ref": "ZipcoFreePlanProcessorRole"}},
+    "ProcessorLogGroupName": {"Value": {"Ref": "ZipcoFreePlanProcessorLogGroup"}},
+    "DashboardName": {"Value": {"Ref": "ZipcoFreePlanEventDashboard"}},
+    "AlertTopicArn": {"Value": {"Ref": "ZipcoFreePlanAlertTopic"}},
+    "AlertKeyArn": {"Value": {"Fn::GetAtt": ["ZipcoFreePlanAlertKey", "Arn"]}},
+    "RawPrefix": {"Value": {"Fn::Sub": "s3://${DataLakeBucketName}/streaming-free-plan/raw/"}},
+    "CuratedPrefix": {"Value": {"Fn::Sub": "s3://${DataLakeBucketName}/streaming-free-plan/curated/"}},
+    "ErrorPrefix": {"Value": {"Fn::Sub": "s3://${DataLakeBucketName}/streaming-free-plan/errors/"}}
+  }
+}

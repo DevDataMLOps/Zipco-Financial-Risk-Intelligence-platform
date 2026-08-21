@@ -9,6 +9,7 @@
 | Athena, Parquet, partitions, and optimization | Complete and verified | Complete |
 | Financial analytics and explainable risk engine | Complete and verified | Complete |
 | Security and governance | Complete and verified, including the isolated IAM/Lake Formation demo | Complete; optional console-detail screenshots remain |
+| CloudWatch, event processing, and resilience | Free-plan Lambda/S3 variant `DEPLOYED_RUN_AND_VERIFIED`; 20/20 controls passed. Native Kinesis/Firehose services are unavailable on the account plan and are not claimed | Complete operational-demo proof with architecture, failure injection, recovery, CloudWatch monitoring, screenshot provenance, and S3 evidence lineage |
 
 ## AWS environment used
 
@@ -39,4 +40,7 @@ Large generated CSV tables, the original one-million-row source, the supplied PD
 - Phase 5 changes default S3 encryption for new writes; it does not re-encrypt historical object versions. A separately approved migration is required for that operation.
 - Lake Formation enforcement is intentionally not activated on the three existing analytics databases. The verified isolated hybrid-access demo under `zipco_lf_governance_demo` proves LF-TBAC through observed allow/deny Athena probes without interrupting the existing Glue and Athena workloads.
 - Security alarms have no external notification destination until an approved operational channel is supplied.
+- The current AWS Free plan rejected both Kinesis and Firehose. Their managed-streaming implementation remains optional undeployed architecture proof and is not represented as an AWS outcome.
+- The selected Phase 6 fallback is bounded Lambda event processing with raw-first S3 recovery, not a native streaming service. Its delivery, quarantine, replay, and CloudWatch controls passed `FP-001`–`FP-020` in AWS under run `20260821T215343Z-cloudshell`.
+- The event-processing recovery target is an operator objective, not a measured disaster-recovery RTO. Replay is at least once, and downstream consumers must de-duplicate on `transaction_id`.
 - AWS Config evaluates both ZIPCO resources and account-level identity posture; noncompliant findings remain visible and are not treated as a deployment failure unless they violate a mandatory structural gate.

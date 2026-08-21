@@ -2,7 +2,20 @@
 
 Serverless AWS data engineering, financial analytics, explainable risk scoring, and operational governance—built and verified in `us-east-2`.
 
-[View the AWS-verified operational resilience dashboard](phases/06-streaming-resilience/dashboard/README.md).
+**Delivery baseline: `1.0.0` · six completed phases · AWS evidence retained by run ID · automated repository validation**
+
+## Start here
+
+| Audience | Best entry point |
+|---|---|
+| Hiring manager or reviewer | [Seven-minute portfolio demo](docs/PORTFOLIO_DEMO.md) |
+| Architect or engineer | [Consolidated architecture](docs/ARCHITECTURE.md) |
+| Project owner or operator | [Professional project handoff](docs/PROJECT_HANDOFF.md) |
+| Security reviewer | [Security policy](SECURITY.md) and [Phase 5 control plane](phases/05-security-governance/README.md) |
+| Evidence reviewer | [Project status and evidence boundary](PROJECT_STATUS.md) |
+| Release reviewer | [Change history](CHANGELOG.md) |
+
+[View the AWS-verified operational resilience dashboard](phases/06-streaming-resilience/dashboard/README.md), or open its [standalone browser version](phases/06-streaming-resilience/dashboard/index.html).
 
 ![ZIPCO operational resilience dashboard](phases/06-streaming-resilience/dashboard/operational-dashboard.png)
 
@@ -75,6 +88,7 @@ flowchart LR
 | [`phases/05-security-governance/lake-formation-demo`](phases/05-security-governance/lake-formation-demo/README.md) | Isolated hybrid Lake Formation registration, LF-TBAC persona grants, allow/deny query probes, and evidence contract |
 | [`phases/06-streaming-resilience`](phases/06-streaming-resilience/README.md) | Free-plan Lambda/S3 event processing, optional Firehose design, contract validation, raw backup, error isolation, replay, CloudWatch alarms, and deployment verification |
 | [`phases/06-streaming-resilience/dashboard`](phases/06-streaming-resilience/dashboard/README.md) | GitHub-native presentation of the verified operational outcome, recovery posture, and evidence lineage |
+| [`docs`](docs/README.md) | Architecture, portfolio-demo script, and professional project handoff |
 | [`platform/s3`](platform/s3) | S3 baseline deployment and verified controls contract |
 | [`platform/data-generation`](platform/data-generation) | Deterministic relational-v2 generator |
 | [`platform/athena`](platform/athena/README.md) | Athena views, validation SQL, analytics SQL, and deployment automation |
@@ -90,6 +104,8 @@ flowchart LR
 5. **Security and governance — complete and verified, including the isolated IAM/Lake Formation access-control demonstration**
 6. **CloudWatch, event processing, and resilience — complete and AWS-verified (20/20); native streaming not claimed**
 
+Professional delivery is also complete: consolidated architecture, an interview-ready demonstration, an operator handoff, contribution guidance, change history, and continuous repository validation are included.
+
 Detailed status and evidence boundaries are recorded in [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ## Reproducing the platform
@@ -104,7 +120,7 @@ The AWS deployment bundles were designed for the verified account and Ohio regio
 6. Deploy the risk engine from [`phases/04-business-intelligence/implementation`](phases/04-business-intelligence/implementation).
 7. Deploy and verify the security control plane from [`phases/05-security-governance/implementation`](phases/05-security-governance/implementation).
 8. Deploy the isolated IAM/Lake Formation proof from [`phases/05-security-governance/lake-formation-demo/implementation`](phases/05-security-governance/lake-formation-demo/implementation).
-9. Deploy and verify the streaming/resilience layer from [`phases/06-streaming-resilience/implementation`](phases/06-streaming-resilience/implementation).
+9. Deploy the AWS-verified Free-plan event-processing variant from [`phases/06-streaming-resilience/free-plan-implementation`](phases/06-streaming-resilience/free-plan-implementation). The [`implementation`](phases/06-streaming-resilience/implementation) directory retains the optional Firehose design and must not be presented as deployed on this account.
 
 Each deployment can incur AWS charges. The repository does not include credentials or access tokens.
 
@@ -118,6 +134,7 @@ The deterministic risk engine prioritizes synthetic activity for analyst review.
 - Measured an 88.21% full-scan reduction from CSV to Parquet and a 95.55% workload-level reduction from full Parquet to a partition-pruned 2023 query.
 - Delivered an explainable Athena risk engine scoring one million transactions, 150,000 accounts, and 100,000 customers with component-level reason codes.
 - Deployed and verified isolated Lake Formation LF-TBAC with four persona mappings, 12 scoped hybrid opt-ins, a successful authorized query, and an expected denied query.
+- Demonstrated resilient Free-plan event processing with 20/20 controls, 25/25 valid events curated, 3/3 expected-invalid events quarantined, encrypted raw recovery, and a bounded replay dry run.
 
 ## Validation
 

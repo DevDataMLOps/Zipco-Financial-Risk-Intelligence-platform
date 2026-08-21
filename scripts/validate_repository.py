@@ -163,6 +163,13 @@ def validate_inventory(files: list[Path], errors: list[str]) -> None:
             ROOT
             / "phases/06-streaming-resilience/dashboard/operational-dashboard.png"
         ),
+        "Professional documentation index": (ROOT / "docs/README.md"),
+        "Consolidated architecture": (ROOT / "docs/ARCHITECTURE.md"),
+        "Professional project handoff": (ROOT / "docs/PROJECT_HANDOFF.md"),
+        "Portfolio demonstration": (ROOT / "docs/PORTFOLIO_DEMO.md"),
+        "Contribution guidance": (ROOT / "CONTRIBUTING.md"),
+        "Change history": (ROOT / "CHANGELOG.md"),
+        "Pull request template": (ROOT / ".github/PULL_REQUEST_TEMPLATE.md"),
     }
     for label, path in expected.items():
         if not path.exists():
@@ -179,6 +186,35 @@ def validate_inventory(files: list[Path], errors: list[str]) -> None:
     for label, actual in counts.items():
         if actual != expected_counts[label]:
             errors.append(f"{label}: expected {expected_counts[label]}, found {actual}")
+
+    delivery_claims = {
+        ROOT / "docs/PROJECT_HANDOFF.md": {
+            "Evidence boundary",
+            "Cost and cleanup",
+            "Native streaming is not claimed",
+        },
+        ROOT / "docs/PORTFOLIO_DEMO.md": {
+            "Seven-minute walkthrough",
+            "88.21%",
+            "95.55%",
+            "20/20",
+        },
+        ROOT / "docs/ARCHITECTURE.md": {
+            "Trust boundaries",
+            "Free-plan Lambda event processing",
+            "Authoritative evidence",
+        },
+    }
+    for path, claims in delivery_claims.items():
+        if not path.exists():
+            continue
+        body = path.read_text(encoding="utf-8-sig")
+        for claim in claims:
+            if claim not in body:
+                errors.append(
+                    f"Professional delivery document {path.relative_to(ROOT)} "
+                    f"is missing: {claim!r}"
+                )
 
     security_template_path = (
         ROOT

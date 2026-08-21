@@ -10,6 +10,7 @@
 | Financial analytics and explainable risk engine | Complete and verified | Complete |
 | Security and governance | Complete and verified, including the isolated IAM/Lake Formation demo | Complete; optional console-detail screenshots remain |
 | CloudWatch, event processing, and resilience | Free-plan Lambda/S3 variant `DEPLOYED_RUN_AND_VERIFIED`; 20/20 controls passed. Native Kinesis/Firehose services are unavailable on the account plan and are not claimed | Complete operational-demo proof with architecture, failure injection, recovery, CloudWatch monitoring, screenshot provenance, and S3 evidence lineage |
+| Professional delivery | Repository structure, consolidated architecture, handoff, portfolio demo, security guidance, validation, and GitHub workflow completed | Complete; baseline `1.0.0` is review-ready in the current draft pull request |
 
 ## AWS environment used
 
@@ -21,6 +22,8 @@
 - Athena workgroup: `zipco-risk-analytics`
 
 The AWS account identifier and resource names are portfolio metadata, not credentials. No access keys, secret keys, passwords, or session tokens are committed.
+
+The evidence records successful deployment runs; they are not a live assertion that every AWS resource remains deployed at the moment this file is read.
 
 ## Evidence provenance
 

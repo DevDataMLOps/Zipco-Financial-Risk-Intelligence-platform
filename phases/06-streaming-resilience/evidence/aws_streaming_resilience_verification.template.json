@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "status": "AWS_VERIFICATION_PENDING",
+  "generated_at": null,
+  "region": "us-east-2",
+  "stack_name": "zipco-streaming-resilience",
+  "run_id": null,
+  "control_summary": {
+    "passed": 0,
+    "total": 20
+  },
+  "note": "Replace this template only with output produced by verify_streaming_resilience.py after an AWS run. The authoritative copy belongs in the run-specific S3 evidence prefix."
+}

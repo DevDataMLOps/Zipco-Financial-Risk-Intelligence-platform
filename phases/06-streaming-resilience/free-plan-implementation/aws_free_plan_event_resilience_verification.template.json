@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "status": "AWS_VERIFICATION_PENDING",
+  "deployment_variant": "free-plan-lambda-event-processing",
+  "native_streaming_service": false,
+  "generated_at": null,
+  "region": "us-east-2",
+  "stack_name": "zipco-free-plan-event-resilience",
+  "run_id": null,
+  "control_summary": {
+    "passed": 0,
+    "total": 20
+  },
+  "note": "Replace only with machine output from verify_free_plan_event_resilience.py after an AWS run. This fallback must not be presented as Kinesis or Firehose streaming."
+}

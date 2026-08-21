@@ -1,0 +1,82 @@
+{
+  "contract_name": "ZIPCO Streaming and Resilience Contract",
+  "contract_version": "1.0.0",
+  "event_schema_version": "2.1.0",
+  "status": "IMPLEMENTATION_COMPLETE_AWS_VERIFICATION_PENDING",
+  "region": "us-east-2",
+  "delivery_semantics": {
+    "guarantee": "at-least-once",
+    "ordering": "no ordering guarantee is claimed across Firehose PutRecordBatch requests; consumers use event_time and transaction_id",
+    "duplicate_policy": "transaction_id is the downstream idempotency key; consumers must tolerate replayed duplicates",
+    "recovery_point_objective": "every Firehose-accepted source event is copied to immutable S3 raw backup; the publisher must report zero failed puts",
+    "recovery_time_objective": "operator-driven replay; target less than 60 minutes after diagnosis, not yet load-tested"
+  },
+  "event_contract": {
+    "content_type": "application/x-ndjson",
+    "required_fields": {
+      "transaction_id": "non-empty string; idempotency key",
+      "account_id": "non-empty string",
+      "customer_id": "non-empty string",
+      "event_time": "timezone-aware RFC3339 timestamp",
+      "transaction_type": "Deposit | Withdrawal | Transfer",
+      "amount": "decimal > 0 and <= 1000000000",
+      "currency": "three-letter uppercase code",
+      "schema_version": "2.1.0",
+      "run_id": "non-empty string used for lineage and verification"
+    },
+    "transform_additions": ["ingested_at", "source"],
+    "partition_keys": ["event_year", "event_month", "event_day", "event_hour"]
+  },
+  "s3_paths": {
+    "raw_backup": "streaming/raw/event_year=YYYY/event_month=MM/event_day=DD/event_hour=HH/",
+    "curated": "streaming/curated/transactions/event_year=YYYY/event_month=MM/event_day=DD/event_hour=HH/",
+    "errors": "streaming/errors/error_type=TYPE/event_year=YYYY/event_month=MM/event_day=DD/event_hour=HH/",
+    "evidence": "streaming/evidence/run_id=RUN_ID/"
+  },
+  "operational_thresholds": {
+    "firehose_data_freshness_seconds": 900,
+    "firehose_delivery_success_minimum": 1,
+    "firehose_throttled_records": 0,
+    "lambda_invocation_errors": 0,
+    "cloudwatch_log_retention_days": 30
+  },
+  "encryption_boundary": {
+    "transport": "The Firehose Direct PUT delivery stream uses its AWS-owned CMK for the managed transport buffer.",
+    "durable_data": "S3 raw, curated, error, artifact, and evidence objects use the Phase 5 ZIPCO customer-managed KMS key.",
+    "logs": "Lambda and Firehose CloudWatch log groups use the Phase 5 ZIPCO customer-managed KMS key.",
+    "alerts": "The SNS alert topic uses a dedicated rotating customer-managed KMS key whose policy authorizes CloudWatch alarms."
+  },
+  "mandatory_controls": [
+    {"id": "SR-001", "assertion": "CloudFormation stack status is CREATE_COMPLETE or UPDATE_COMPLETE."},
+    {"id": "SR-002", "assertion": "Amazon Data Firehose delivery stream status is ACTIVE."},
+    {"id": "SR-003", "assertion": "Firehose uses Direct PUT ingestion."},
+    {"id": "SR-004", "assertion": "Firehose transport-buffer encryption is enabled with an AWS-owned CMK."},
+    {"id": "SR-005", "assertion": "The Lambda transformer state is Active."},
+    {"id": "SR-006", "assertion": "The transformer enforces event schema version 2.1.0."},
+    {"id": "SR-007", "assertion": "Firehose dynamic partitioning is enabled."},
+    {"id": "SR-008", "assertion": "Firehose backs up all source records to S3."},
+    {"id": "SR-009", "assertion": "Firehose Lambda record processing is enabled."},
+    {"id": "SR-010", "assertion": "Firehose buffering is bounded between 60 and 900 seconds."},
+    {"id": "SR-011", "assertion": "The verification batch is observed in the S3 raw backup."},
+    {"id": "SR-012", "assertion": "All expected-valid verification records are observed in curated S3."},
+    {"id": "SR-013", "assertion": "Expected-invalid records produce at least one object under the S3 error prefix."},
+    {"id": "SR-014", "assertion": "Observed raw, curated, and error objects use SSE-KMS."},
+    {"id": "SR-015", "assertion": "The streaming CloudWatch dashboard is retrievable."},
+    {"id": "SR-016", "assertion": "Exactly four streaming metric alarms are deployed."},
+    {"id": "SR-017", "assertion": "Exactly one composite streaming-health alarm is deployed."},
+    {"id": "SR-018", "assertion": "Firehose delivery logging is active with 30-day retention."},
+    {"id": "SR-019", "assertion": "The alert SNS topic uses a rotating customer-managed KMS key whose policy permits CloudWatch alarm publication."},
+    {"id": "SR-020", "assertion": "The test publisher reports zero Firehose put failures."}
+  ],
+  "failure_injection": {
+    "method": "Publish one missing-key event, one negative-amount event, and one unsupported-schema event.",
+    "expected_result": "Valid events reach curated S3; invalid events are isolated under the Firehose error prefix; every source record remains in raw backup."
+  },
+  "guardrails": [
+    "The deployment never deletes or rewrites historical source objects.",
+    "Replay is a dry run unless --execute is explicitly supplied.",
+    "The Lambda function logs aggregate counts only, not transaction payloads.",
+    "The optional SNS email subscription remains pending until the recipient confirms it.",
+    "This phase does not claim exactly-once processing or a tested disaster-recovery RTO."
+  ]
+}

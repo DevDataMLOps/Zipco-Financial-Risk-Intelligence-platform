@@ -76,6 +76,12 @@ flowchart LR
 | IAM/Lake Formation demo | `DEPLOYED_RUN_AND_VERIFIED`; 18/18 controls, 4/4 persona mappings, 12/12 hybrid opt-ins, and observed allow/deny Athena probes |
 | Event processing and resilience | `DEPLOYED_RUN_AND_VERIFIED`; 20/20 controls, 25/25 curated, 3/3 quarantined, encrypted raw recovery and replay dry run passed. Native streaming is not claimed |
 
+## Business outcome: query efficiency and modeled cost savings
+
+The equivalent full-history Athena workload scanned **88.21% less data** after CSV-to-Parquet optimization, with aggregate-result reconciliation across three uncached runs per strategy. [The evidence chain and cost model](phases/03-optimization/business-outcome-and-cost-model.md) connect the benchmark SQL, retained AWS execution records, and a reproducible estimate of query charges.
+
+Dollar outputs are **modeled scenarios**, not realized AWS bill savings. The calculator includes per-query rounding and minimum billing; exact historical byte measurements remain in the referenced S3 evidence pending retrieval.
+
 ## Repository map
 
 | Path | Contents |

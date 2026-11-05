@@ -22,3 +22,6 @@ jobs:
       - name: Validate contracts, links, inventory, and secret patterns
         run: python scripts/validate_repository.py
 
+
+      - name: Test Athena evidence validation and cost modeling
+        run: python -m unittest discover -s tests -p "test_athena_cost_model.py" -v

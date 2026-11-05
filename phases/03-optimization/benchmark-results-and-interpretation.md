@@ -81,7 +81,7 @@ For Athena workloads billed primarily by bytes scanned, the scan reductions prov
 - The full-history Parquet query used 11.79% of the CSV scan volume, implying approximately the same proportional reduction in scan-based query charges for that query shape, before minimum billing, regional pricing, result storage, or other service charges.
 - The partition-pruned 2023 workload used 4.45% of the full-history Parquet scan volume. Because the workload scope also changed, this is a useful operational cost comparison rather than a pure partition-only savings estimate.
 
-No fixed dollar estimate is included because pricing and billing minimums can change, and the exact byte measurements are preserved in the AWS evidence report.
+[The business-outcome cost model](business-outcome-and-cost-model.md) now supplies explicitly illustrative dollar scenarios and an offline calculator for the original AWS records. It applies per-query minimum billing and rounding, separates assumed frequency from measured scans, and does not claim realized bill savings.
 
 ## What this benchmark proves
 

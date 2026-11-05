@@ -130,6 +130,8 @@ See [Monitoring and cost controls](monitoring-and-cost-controls.md).
 
 ## Portfolio evidence
 
+- [Business outcome, evidence chain, and reproducible cost model](business-outcome-and-cost-model.md)
+
 - [Benchmark results and interpretation](benchmark-results-and-interpretation.md)
 - [Architecture and benchmark methodology](architecture-and-methodology.md)
 - [Monitoring and cost controls](monitoring-and-cost-controls.md)
